@@ -843,6 +843,33 @@ class KANInterface(nn.Module):
         return self.transform(x).reshape(B, N, self.out_features)
 
 
+class KANInterfaceV2(nn.Module):
+    def __init__(self, in_features, out_features, layer_type, hyperparam):
+        super(KANInterfaceV2, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        if layer_type == "WavKAN":
+            self.transform = WaveKANLayer(in_features, out_features, with_bn=False)
+        elif layer_type == "KAN":
+            self.transform = KANLayer(in_features, out_features, num=hyperparam)
+        elif layer_type == "FourierKAN":
+            self.transform = NaiveFourierKANLayer(in_features, out_features, gridsize=hyperparam)
+        elif layer_type == "JacobiKAN":
+            self.transform = JacobiKANLayer(in_features, out_features, degree=hyperparam)
+        elif layer_type == "ChebyKAN":
+            self.transform = ChebyKANLayer(in_features, out_features, degree=hyperparam)
+        elif layer_type == "TaylorKAN":
+            self.transform = TaylorKANLayer(in_features, out_features, order=hyperparam)
+        # elif layer_type == "TaylorKAN2":
+        #     self.transform = TaylorKANLayer2(in_features, out_features, order=hyperparam)
+        else:
+            raise NotImplementedError(f"Layer type {layer_type} not implemented")
+
+    def forward(self, x):
+        x = self.transform(x)
+        return x
+
+
 class MoKLayer(nn.Module):
     def __init__(self, in_features, out_features, experts_type="A", gate_type="Linear"):
         super(MoKLayer, self).__init__()
