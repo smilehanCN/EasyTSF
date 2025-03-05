@@ -108,8 +108,8 @@ class DataInterface(pl.LightningDataModule):
             dataset=GeneralTSFDataset(
                 self.hist_len,
                 self.pred_len,
-                self.variable[self.train_len:self.train_len + self.val_len].copy(),
-                self.time_feature[self.train_len:self.train_len + self.val_len].copy(),
+                self.variable[self.train_len - self.hist_len:self.train_len + self.val_len].copy(),
+                self.time_feature[self.train_len - self.hist_len:self.train_len + self.val_len].copy(),
             ),
             batch_size=self.batch_size,
             num_workers=self.num_workers,
@@ -122,8 +122,8 @@ class DataInterface(pl.LightningDataModule):
             dataset=GeneralTSFDataset(
                 self.hist_len,
                 self.pred_len,
-                self.variable[self.train_len + self.val_len:].copy(),
-                self.time_feature[self.train_len + self.val_len:].copy(),
+                self.variable[self.train_len + self.val_len - self.hist_len:].copy(),
+                self.time_feature[self.train_len + self.val_len - self.hist_len:].copy(),
             ),
             batch_size=1,
             num_workers=self.num_workers,
