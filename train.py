@@ -6,6 +6,7 @@ import os
 import lightning.pytorch as L
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
 from lightning.pytorch.loggers import CSVLogger, WandbLogger
+from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
 
 from easytsf.runner.data_runner import DataInterface
 from easytsf.runner.exp_runner import LTSFRunner
@@ -60,6 +61,8 @@ def train_func(hyper_conf, conf):
             patience=conf["es_patience"],
         ),
         LearningRateMonitor(logging_interval="epoch"),
+        TuneReportCheckpointCallback(
+            {conf["val_metric"]: conf["val_metric"]}, save_checkpoints=False, on="validation_end")
     ]
 
     trainer = L.Trainer(

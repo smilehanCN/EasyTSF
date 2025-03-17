@@ -35,6 +35,10 @@ ETTh1 and ETTm1 can be downloaded within this project, and other datasets can be
 python train.py -c config/reproduce_conf/RMoK/ETTh1_96for96.py
 ```
 
+```shell
+ python ray_tune.py --config config/reproduce_conf/MMK/MMK_ETTh1_96for96.py --param_space config/reproduce_conf/MMK/MMK_search_space.py 
+```
+
 ## Cite
 If you find this repo useful, please cite our paper:
 ```
