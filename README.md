@@ -2,6 +2,9 @@
 
 This project was upgraded from KAN4TSF to EasyTSF (**E**xperiment **as**sistant for **y**our **T**ime-**S**eries **F**orecasting).
 
+
+🚩 **News** (2025.10) Another project: [EasyResult]([https://mp.weixin.qq.com/s/bSwAbKBxON7FPebAiqltWg](https://github.com/smilehanCN/EasyResult)). This is an experimental data visualization page  that provides data import, model/dataset drag-and-drop, best-value highlighting, and multi-format (CSV and **Latex**) export functionality.
+
 🚩 **News** (2025.02) We add MMK, a Multi-layer Mixture-of-KAN model for MTSF.
 
 🚩 **News** (2024.11) KAN4TSF -> EasyTSF, we will support more time series forecasting models.
