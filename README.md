@@ -51,4 +51,22 @@ If you find this repo useful, please cite our paper:
   booktitle={arXiv},
   year={2024},
 }
+
+or
+
+@inproceedings{10.1145/3746252.3760836,
+author = {Han, Xiao and Zhang, Zhenduo and Zhang, Xinfeng and Wu, Yiling and Wu, Zhe},
+title = {Mixture-of-KAN for Multivariate Time Series Forecasting},
+year = {2025},
+isbn = {9798400720406},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3746252.3760836},
+doi = {10.1145/3746252.3760836},
+pages = {4770–4774},
+numpages = {5},
+keywords = {kolmogorov-arnold network, multivariate, time series forecasting},
+location = {Seoul, Republic of Korea},
+series = {CIKM '25}
+}
 ```
