@@ -1,83 +1,16 @@
-import argparse
-import importlib
-import os
 from pathlib import Path
 
-import lightning.pytorch as L
-from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
-from lightning.pytorch.loggers import CSVLogger, WandbLogger
+import argparse
 
-from easytsf.util import cal_conf_hash
-from easytsf.util import load_module_from_path
-from easytsf.util import parse_devices
-
-
-def load_config(exp_conf_path):
-    exp_conf = load_module_from_path("exp_conf", exp_conf_path).exp_conf
-
-    task_conf_module = importlib.import_module("config.base_conf.task")
-    task_conf = task_conf_module.task_conf
-
-    data_conf_module = importlib.import_module("config.base_conf.datasets")
-    data_conf = eval("data_conf_module.{}_conf".format(exp_conf["dataset_name"]))
-
-    fused_conf = {**task_conf, **data_conf}
-    fused_conf.update(exp_conf)
-    return fused_conf
-
-
-def build_callbacks(conf):
-    callbacks = [
-        ModelCheckpoint(
-            monitor=conf["val_metric"],
-            mode="min",
-            save_top_k=1,
-            save_last=False,
-            every_n_epochs=1,
-        ),
-        EarlyStopping(
-            monitor=conf["val_metric"],
-            mode="min",
-            patience=conf["es_patience"],
-        ),
-        LearningRateMonitor(logging_interval="epoch"),
-    ]
-
-    if conf.get("use_ray"):
-        from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
-
-        callbacks.append(
-            TuneReportCheckpointCallback(
-                {conf["val_metric"]: conf["val_metric"]},
-                save_checkpoints=False,
-                on="validation_end",
-            )
-        )
-
-    return callbacks
-
-
-def build_runner(conf):
-    from easytsf.runner.exp_base_runner import LTSFRunner
-    from easytsf.runner.exp_mynetv6_runner import LTSFMyNetV6Runner
-    from easytsf.runner.exp_mynetvx_runner import LTSFMyNetVXRunner
-    from easytsf.runner.exp_reconstruction_runner import ReconstructionRunner
-    from easytsf.runner.exp_univariate_runner import UnivariateRunner
-    from easytsf.runner.exp_with_aux_loss_runner import LTSFwithAuxLossRunner
-
-    if conf["exp_runner"] == "exp_with_aux_loss":
-        return LTSFwithAuxLossRunner(**conf)
-    if conf["exp_runner"] == "exp_base":
-        return LTSFRunner(**conf)
-    if conf["exp_runner"] == "exp_univariate":
-        return UnivariateRunner(**conf)
-    if conf["exp_runner"] == "exp_mynetv6_runner":
-        return LTSFMyNetV6Runner(**conf)
-    if conf["exp_runner"] == "exp_mynetvx_runner":
-        return LTSFMyNetVXRunner(**conf)
-    if conf["exp_runner"] == "exp_reconstruction_runner":
-        return ReconstructionRunner(**conf)
-    raise NotImplementedError
+from easytsf.experiment import (
+    add_shared_runtime_args,
+    add_tune_args,
+    build_runtime_overrides,
+    finalize_runtime_conf,
+    load_config,
+    load_param_space,
+    run_training,
+)
 
 
 def build_reporter(param_space, metric, mode):
@@ -105,44 +38,8 @@ def save_tune_reports(result_grid, metric, mode):
     return trial_report_path, best_report_path
 
 
-def train_func(hyper_conf, conf):
-    from easytsf.runner.data_runner import DataInterface
-
-    conf = dict(conf)
-    if hyper_conf is not None:
-        conf.update(hyper_conf)
-
-    conf["devices"] = parse_devices(conf.get("devices", "auto"))
-    conf["accelerator"] = conf.get("accelerator", "auto")
-    conf["conf_hash"] = cal_conf_hash(conf, hash_len=10)
-
-    L.seed_everything(conf["seed"])
-    save_dir = os.path.join(conf["save_root"], "{}_{}".format(conf["model_name"], conf["dataset_name"]))
-    if conf.get("use_wandb"):
-        run_logger = WandbLogger(save_dir=save_dir, name=conf["conf_hash"], version="seed_{}".format(conf["seed"]))
-    else:
-        run_logger = CSVLogger(save_dir=save_dir, name=conf["conf_hash"], version="seed_{}".format(conf["seed"]))
-    conf["exp_dir"] = os.path.join(save_dir, conf["conf_hash"], "seed_{}".format(conf["seed"]))
-
-    trainer = L.Trainer(
-        accelerator=conf["accelerator"],
-        devices=conf["devices"],
-        precision=conf["precision"] if "precision" in conf else "32-true",
-        logger=run_logger,
-        callbacks=build_callbacks(conf),
-        max_epochs=conf["max_epochs"],
-        gradient_clip_algorithm=conf["gradient_clip_algorithm"] if "gradient_clip_algorithm" in conf else "norm",
-        gradient_clip_val=conf["gradient_clip_val"],
-        default_root_dir=conf["save_root"],
-    )
-
-    data_module = DataInterface(**conf)
-    train_loader = data_module.train_dataloader()
-    conf["steps_per_epoch"] = max(1, len(train_loader))
-    model = build_runner(conf)
-
-    trainer.fit(model=model, datamodule=data_module)
-    trainer.test(model, datamodule=data_module, ckpt_path="best")
+def train_func(hyper_conf, base_conf):
+    run_training(finalize_runtime_conf(base_conf, overrides=hyper_conf, use_ray=hyper_conf is not None))
 
 
 def ray_tune_train(param_space, init_conf, num_samples=1, cpus_per_trial=2, gpus_per_trial=1, mode="min"):
@@ -155,7 +52,7 @@ def ray_tune_train(param_space, init_conf, num_samples=1, cpus_per_trial=2, gpus
     scheduler = FIFOScheduler()
     reporter = build_reporter(param_space, metric, mode)
 
-    trainable = tune.with_parameters(train_func, conf=init_conf)
+    trainable = tune.with_parameters(train_func, base_conf=init_conf)
     trainable = tune.with_resources(
         trainable,
         resources={"cpu": cpus_per_trial, "gpu": gpus_per_trial},
@@ -193,38 +90,17 @@ def ray_tune_train(param_space, init_conf, num_samples=1, cpus_per_trial=2, gpus
             print(error)
 
 
-def build_arg_parser(require_param_space=False):
+def build_arg_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", type=str)
-    parser.add_argument("-p", "--param_space", required=require_param_space, type=str, default=None)
-    parser.add_argument("-d", "--data_root", default="dataset", type=str, help="data root")
-    parser.add_argument("-s", "--save_root", default="save", help="save root")
-    parser.add_argument("--accelerator", default="auto", type=str, help="accelerator to use")
-    parser.add_argument("--devices", default="auto", type=str, help="device ids/count, e.g. auto, 1, 0,1")
-    parser.add_argument("--use_wandb", default=0, type=int, help="use wandb")
-    parser.add_argument("--seed", type=int, default=0, help="seed")
-    parser.add_argument("--num_samples", default=1, type=int)
-    parser.add_argument("--num_gpus", default=0, type=int)
-    parser.add_argument("--cpus_per_trial", default=2, type=int)
-    parser.add_argument("--gpus_per_trial", default=0.5, type=float)
+    add_shared_runtime_args(parser)
+    add_tune_args(parser)
     return parser
 
 
-def build_training_conf(args, use_ray=False):
-    return {
-        "seed": int(args.seed),
-        "data_root": args.data_root,
-        "save_root": args.save_root,
-        "accelerator": args.accelerator,
-        "devices": args.devices,
-        "use_wandb": args.use_wandb,
-        "use_ray": use_ray,
-        "param_space_path": args.param_space,
-    }
-
-
 def run_standard_train(args, init_exp_conf):
-    train_func(build_training_conf(args, use_ray=False), init_exp_conf)
+    base_conf = dict(init_exp_conf)
+    base_conf.update(build_runtime_overrides(args))
+    run_training(finalize_runtime_conf(base_conf))
 
 
 def run_tune_search(args, init_exp_conf):
@@ -237,8 +113,8 @@ def run_tune_search(args, init_exp_conf):
             ray.init()
 
     tune_conf = dict(init_exp_conf)
-    tune_conf.update(build_training_conf(args, use_ray=True))
-    param_space = load_module_from_path("param_space", args.param_space).param_space
+    tune_conf.update(build_runtime_overrides(args))
+    param_space = load_param_space(args.param_space)
 
     ray_tune_train(
         param_space=param_space,
@@ -249,8 +125,8 @@ def run_tune_search(args, init_exp_conf):
     )
 
 
-def main(argv=None, require_param_space=False):
-    parser = build_arg_parser(require_param_space=require_param_space)
+def main(argv=None):
+    parser = build_arg_parser()
     args = parser.parse_args(argv)
     init_exp_conf = load_config(args.config)
 

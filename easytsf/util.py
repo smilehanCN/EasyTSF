@@ -6,7 +6,7 @@ import sys
 
 def cal_conf_hash(config, useless_key=None, hash_len=10):
     if useless_key is None:
-        useless_key = ['save_root', 'data_root', 'seed', 'ckpt_path', 'conf_hash', 'use_wandb']
+        useless_key = ['save_root', 'data_root', 'seed', 'ckpt_path', 'conf_hash', 'use_wandb', 'use_ray']
 
     conf_str = ''
     for k, v in config.items():
