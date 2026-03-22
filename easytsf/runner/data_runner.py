@@ -1,10 +1,101 @@
 import os
+from functools import lru_cache
+from pathlib import Path
 
 import lightning.pytorch as pl
 import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
+
+
+DATA_ARRAY_KEY = "scaled_variable"
+TIMESTAMP_ARRAY_KEY = "timestamp"
+STAT_KEYS = ("mean", "std")
+
+
+def _cache_dir_for_npz(npz_path):
+    npz_path = Path(npz_path)
+    return npz_path.parent / ".easytsf_cache" / npz_path.stem
+
+
+def _cache_path_for_key(npz_path, key):
+    return _cache_dir_for_npz(npz_path) / "{}.npy".format(key)
+
+
+def _atomic_save_array(target_path, array):
+    target_path = Path(target_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = target_path.with_name("{}.{}.tmp.npy".format(target_path.stem, os.getpid()))
+    np.save(temp_path, array)
+    os.replace(temp_path, target_path)
+
+
+def _cache_needs_refresh(npz_path, keys):
+    npz_path = Path(npz_path)
+    source_mtime = npz_path.stat().st_mtime
+    for key in keys:
+        cache_path = _cache_path_for_key(npz_path, key)
+        if not cache_path.exists() or cache_path.stat().st_mtime < source_mtime:
+            return True
+    return False
+
+
+def _materialize_npy_cache(npz_path, keys):
+    npz_path = Path(npz_path)
+    with np.load(npz_path) as data:
+        for key in keys:
+            if key not in data:
+                continue
+            array = data[key]
+            if key in (DATA_ARRAY_KEY, *STAT_KEYS):
+                array = array.astype(np.float32, copy=False)
+            _atomic_save_array(_cache_path_for_key(npz_path, key), array)
+
+
+def _ensure_npy_cache(npz_path, keys):
+    try:
+        if _cache_needs_refresh(npz_path, keys):
+            _materialize_npy_cache(npz_path, keys)
+        return True
+    except OSError:
+        return False
+
+
+def load_dataset_arrays(npz_path, use_mmap=False, cache_npz_as_npy=None):
+    if cache_npz_as_npy is None:
+        cache_npz_as_npy = use_mmap
+
+    required_keys = (DATA_ARRAY_KEY, TIMESTAMP_ARRAY_KEY)
+    if use_mmap and cache_npz_as_npy and _ensure_npy_cache(npz_path, required_keys):
+        variable = np.load(_cache_path_for_key(npz_path, DATA_ARRAY_KEY), mmap_mode="r")
+        timestamp = np.load(_cache_path_for_key(npz_path, TIMESTAMP_ARRAY_KEY), mmap_mode="r")
+        return variable, timestamp
+
+    with np.load(npz_path) as data:
+        variable = data[DATA_ARRAY_KEY].astype(np.float32, copy=False)
+        timestamp = data[TIMESTAMP_ARRAY_KEY]
+    return variable, timestamp
+
+
+@lru_cache(maxsize=None)
+def _load_dataset_stats_cached(npz_path, use_mmap=False, cache_npz_as_npy=None):
+    if cache_npz_as_npy is None:
+        cache_npz_as_npy = use_mmap
+
+    if use_mmap and cache_npz_as_npy and _ensure_npy_cache(npz_path, STAT_KEYS):
+        mean = np.load(_cache_path_for_key(npz_path, "mean"), mmap_mode="r")
+        std = np.load(_cache_path_for_key(npz_path, "std"), mmap_mode="r")
+        return mean, std
+
+    with np.load(npz_path) as data:
+        mean = data["mean"].astype(np.float32, copy=False)
+        std = data["std"].astype(np.float32, copy=False)
+    return mean, std
+
+
+def load_dataset_stats(npz_path, use_mmap=False, cache_npz_as_npy=None):
+    return _load_dataset_stats_cached(str(npz_path), bool(use_mmap), cache_npz_as_npy)
 
 
 class GeneralTSFDataset(Dataset):
@@ -56,6 +147,7 @@ class DataInterface(pl.LightningDataModule):
             self.persistent_workers = self.num_workers > 0
         self.prefetch_factor = kwargs.get("prefetch_factor", 2)
         self.use_mmap = kwargs.get("use_mmap", False)
+        self.cache_npz_as_npy = kwargs.get("cache_npz_as_npy")
         self.precompute_window_index = kwargs.get("precompute_window_index", False)
 
         self.data_path = os.path.join(kwargs['data_root'], "{}.npz".format(kwargs['dataset_name']))
@@ -70,48 +162,52 @@ class DataInterface(pl.LightningDataModule):
         self._test_loader = None
 
     def __read_data__(self):
-        mmap_mode = "r" if self.use_mmap else None
-        data = np.load(self.data_path, mmap_mode=mmap_mode)
-        variable = data['scaled_variable'].astype(np.float32, copy=False)
-        timestamp = pd.DatetimeIndex(data['timestamp'])
+        variable, raw_timestamp = load_dataset_arrays(
+            self.data_path,
+            use_mmap=self.use_mmap,
+            cache_npz_as_npy=self.cache_npz_as_npy,
+        )
+        variable = variable.astype(np.float32, copy=False)
+        timestamp = pd.DatetimeIndex(raw_timestamp)
 
         # time_feature
-        time_feature = []
-        for tf_cls in self.time_feature_cls:
+        if len(self.time_feature_cls) == 0:
+            return variable, np.empty((len(variable), 0), dtype=np.float32)
+
+        time_feature = np.empty((len(variable), len(self.time_feature_cls)), dtype=np.float32)
+        for feature_idx, tf_cls in enumerate(self.time_feature_cls):
             if tf_cls == "tod":
                 tod_size = int((24 * 60) / self.config['freq']) - 1
                 tod = (timestamp.hour.to_numpy() * 60 + timestamp.minute.to_numpy()) / self.config['freq']
                 if self.norm_time_feature:
-                    time_feature.append(tod / tod_size - 0.5)
+                    time_feature[:, feature_idx] = tod / tod_size - 0.5
                 else:
-                    time_feature.append(tod)
+                    time_feature[:, feature_idx] = tod
             elif tf_cls == "dow":
                 dow_size = 7 - 1
                 dow = timestamp.dayofweek.to_numpy()  # 0 ~ 6
                 if self.norm_time_feature:
-                    time_feature.append(dow / dow_size - 0.5)
+                    time_feature[:, feature_idx] = dow / dow_size - 0.5
                 else:
-                    time_feature.append(dow)
+                    time_feature[:, feature_idx] = dow
             elif tf_cls == "dom":
                 dom_size = 31 - 1
                 dom = timestamp.day.to_numpy() - 1  # 0 ~ 30
                 if self.norm_time_feature:
-                    time_feature.append(dom / dom_size - 0.5)
+                    time_feature[:, feature_idx] = dom / dom_size - 0.5
                 else:
-                    time_feature.append(dom)
+                    time_feature[:, feature_idx] = dom
             elif tf_cls == "doy":
                 doy_size = 366 - 1
                 doy = timestamp.dayofyear.to_numpy() - 1  # 0 ~ 181
                 if self.norm_time_feature:
-                    time_feature.append(doy / doy_size - 0.5)
+                    time_feature[:, feature_idx] = doy / doy_size - 0.5
                 else:
-                    time_feature.append(doy)
+                    time_feature[:, feature_idx] = doy
             else:
                 raise NotImplementedError
 
-        if len(time_feature) == 0:
-            return variable, np.empty((len(variable), 0), dtype=np.float32)
-        return variable, np.stack(time_feature, axis=-1).astype(np.float32, copy=False)
+        return variable, time_feature
 
     def _create_loader(self, dataset, batch_size, shuffle, drop_last):
         loader_args = dict(

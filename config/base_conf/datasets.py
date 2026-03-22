@@ -1,3 +1,10 @@
+large_scale_io_conf = dict(
+    use_mmap=True,
+    cache_npz_as_npy=True,
+    precompute_window_index=True,
+)
+
+
 cost_conf = dict(
     dataset_name='cost',
     var_num=7,
@@ -17,6 +24,7 @@ WDIR2022_conf = dict(
     var_num=4232,
     freq=10,
     data_split=[31536, 10512, 10512],
+    **large_scale_io_conf,
 )
 
 WSPD2022_conf = dict(
@@ -24,6 +32,7 @@ WSPD2022_conf = dict(
     var_num=4232,
     freq=10,
     data_split=[31536, 10512, 10512],
+    **large_scale_io_conf,
 )
 
 SZWeatherDemo_conf = dict(
@@ -66,6 +75,7 @@ ECL_conf = dict(
     var_num=321,
     freq=60,
     data_split=[18412, 2632, 5260],
+    **large_scale_io_conf,
 )
 
 Weather_conf = dict(
@@ -80,6 +90,7 @@ Traffic_conf = dict(
     var_num=862,
     freq=60,
     data_split=[12280, 1756, 3508],
+    **large_scale_io_conf,
 )
 
 Illness_conf = dict(
@@ -94,6 +105,7 @@ SolarEnergy_conf = dict(
     var_num=137,
     freq=10,
     data_split=[36792, 5256, 10512],
+    **large_scale_io_conf,
 )
 
 PEMS03_conf = dict(
@@ -101,6 +113,7 @@ PEMS03_conf = dict(
     var_num=358,
     freq=5,
     data_split=[15724, 5242, 5242],
+    **large_scale_io_conf,
 )
 
 PEMS04_conf = dict(
@@ -108,6 +121,7 @@ PEMS04_conf = dict(
     var_num=307,
     freq=5,
     data_split=[10196, 3398, 3398],
+    **large_scale_io_conf,
 )
 
 PEMS07_conf = dict(
@@ -115,6 +129,7 @@ PEMS07_conf = dict(
     var_num=883,
     freq=5,
     data_split=[16934, 5645, 5645],
+    **large_scale_io_conf,
 )
 
 PEMS08_conf = dict(
@@ -122,6 +137,7 @@ PEMS08_conf = dict(
     var_num=170,
     freq=5,
     data_split=[10714, 3571, 3571],
+    **large_scale_io_conf,
 )
 
 wind_conf = dict(

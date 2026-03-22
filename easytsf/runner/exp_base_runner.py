@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lrs
 
+from easytsf.runner.data_runner import load_dataset_stats
+
 
 def mean_absolute_percentage_error(y_true: torch.Tensor, y_pred: torch.Tensor, epsilon: float = 1e-8) -> torch.Tensor:
     """
@@ -76,9 +78,13 @@ class LTSFRunner(L.LightningModule):
         self.load_model()
         self.configure_loss()
 
-        stat = np.load(os.path.join(self.hparams.data_root, '{}.npz'.format(self.hparams.dataset_name)))
-        self.register_buffer('mean', torch.tensor(stat['mean']).float())
-        self.register_buffer('std', torch.tensor(stat['std']).float())
+        mean, std = load_dataset_stats(
+            os.path.join(self.hparams.data_root, '{}.npz'.format(self.hparams.dataset_name)),
+            use_mmap=getattr(self.hparams, "use_mmap", False),
+            cache_npz_as_npy=getattr(self.hparams, "cache_npz_as_npy", None),
+        )
+        self.register_buffer('mean', torch.tensor(mean).float())
+        self.register_buffer('std', torch.tensor(std).float())
 
     def forward(self, batch, batch_idx):
         var_x, marker_x, var_y, marker_y = self._prepare_batch(batch)

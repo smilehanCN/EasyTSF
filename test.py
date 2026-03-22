@@ -4,21 +4,21 @@ import os
 import lightning.pytorch as L
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint, EarlyStopping
 from lightning.pytorch.loggers import CSVLogger, WandbLogger
-from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
 
-from easytsf.runner.data_runner import DataInterface
-from easytsf.runner.exp_base_runner import LTSFRunner
-from easytsf.runner.exp_with_aux_loss_runner import LTSFwithAuxLossRunner
-from easytsf.runner.exp_univariate_runner import UnivariateRunner
-from easytsf.runner.exp_mynetv6_runner import LTSFMyNetV6Runner
-from easytsf.runner.exp_mynetvx_runner import LTSFMyNetVXRunner
-from easytsf.runner.exp_base_vis_runner import VisLTSFRunner
 from easytsf.util import cal_conf_hash
 from easytsf.util import parse_devices
 from train import load_config
 
 
 def train_func(hyper_conf, conf):
+    from easytsf.runner.data_runner import DataInterface
+    from easytsf.runner.exp_base_runner import LTSFRunner
+    from easytsf.runner.exp_base_vis_runner import VisLTSFRunner
+    from easytsf.runner.exp_mynetv6_runner import LTSFMyNetV6Runner
+    from easytsf.runner.exp_mynetvx_runner import LTSFMyNetVXRunner
+    from easytsf.runner.exp_univariate_runner import UnivariateRunner
+    from easytsf.runner.exp_with_aux_loss_runner import LTSFwithAuxLossRunner
+
     if hyper_conf is not None:
         for k, v in hyper_conf.items():
             conf[k] = v
@@ -51,6 +51,8 @@ def train_func(hyper_conf, conf):
     ]
 
     if "use_ray" in conf and conf["use_ray"]:
+        from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
+
         callbacks.append(TuneReportCheckpointCallback(
             {conf["val_metric"]: conf["val_metric"]}, save_checkpoints=False, on="validation_end"))
 
