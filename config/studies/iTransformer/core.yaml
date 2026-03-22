@@ -1,0 +1,23 @@
+name: itransformer_core
+seeds: [0, 1, 2]
+cases:
+  - experiment: iTransformer/ETTh1
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 96
+  - experiment: iTransformer/ETTh1
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 336
+  - experiment: iTransformer/Traffic
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 96
+  - experiment: iTransformer/ECL
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 96

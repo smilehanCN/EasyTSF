@@ -3,12 +3,14 @@ from pathlib import Path
 import argparse
 
 from easytsf.experiment import (
+    add_config_override_args,
     add_shared_runtime_args,
     add_tune_args,
     build_runtime_overrides,
     finalize_runtime_conf,
     load_config,
     load_param_space,
+    parse_config_overrides,
     run_training,
 )
 
@@ -93,6 +95,7 @@ def ray_tune_train(param_space, init_conf, num_samples=1, cpus_per_trial=2, gpus
 def build_arg_parser():
     parser = argparse.ArgumentParser()
     add_shared_runtime_args(parser)
+    add_config_override_args(parser)
     add_tune_args(parser)
     return parser
 
@@ -128,7 +131,7 @@ def run_tune_search(args, init_exp_conf):
 def main(argv=None):
     parser = build_arg_parser()
     args = parser.parse_args(argv)
-    init_exp_conf = load_config(args.config)
+    init_exp_conf = load_config(args.config, overrides=parse_config_overrides(args.config_overrides))
 
     if args.param_space:
         run_tune_search(args, init_exp_conf)

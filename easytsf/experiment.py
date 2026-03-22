@@ -1,15 +1,15 @@
 import hashlib
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import lightning.pytorch as L
 import yaml
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger, WandbLogger
 
-from easytsf.data import DataInterface
-from easytsf.task import ForecastTask
 from easytsf.util import cal_conf_hash, load_module_from_path, parse_devices
 
 
@@ -19,6 +19,7 @@ TASK_CONFIG_PATH = CONFIG_ROOT / "tasks" / "forecast.yaml"
 DATASET_CATALOG_PATH = CONFIG_ROOT / "datasets" / "catalog.yaml"
 EXPERIMENT_CONFIG_DIR = CONFIG_ROOT / "experiments"
 SEARCH_SPACE_DIR = CONFIG_ROOT / "search_spaces"
+STUDY_CONFIG_DIR = CONFIG_ROOT / "studies"
 CONFIG_SECTIONS = ("model", "data", "train", "runtime")
 
 
@@ -26,8 +27,8 @@ CONFIG_SECTIONS = ("model", "data", "train", "runtime")
 class ExperimentComponents:
     conf: dict
     trainer: L.Trainer
-    datamodule: DataInterface
-    task: ForecastTask
+    datamodule: Any
+    task: Any
 
 
 def add_shared_runtime_args(parser):
@@ -38,6 +39,18 @@ def add_shared_runtime_args(parser):
     parser.add_argument("--devices", default="auto", type=str, help="device ids/count, e.g. auto, 1, 0,1")
     parser.add_argument("--use_wandb", default=0, type=int, help="use wandb")
     parser.add_argument("--seed", type=int, default=0, help="seed")
+    return parser
+
+
+def add_config_override_args(parser):
+    parser.add_argument(
+        "--set",
+        dest="config_overrides",
+        action="append",
+        default=[],
+        metavar="SECTION.KEY=VALUE",
+        help="override config values, e.g. --set data.pred_len=336 --set train.lr=1e-4",
+    )
     return parser
 
 
@@ -58,6 +71,24 @@ def _load_yaml(path):
     return data
 
 
+def _save_yaml(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(data, handle, sort_keys=True, allow_unicode=True)
+
+
+def _save_json(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=2, sort_keys=True, ensure_ascii=False)
+
+
+def _empty_section_map():
+    return {section: {} for section in CONFIG_SECTIONS}
+
+
 def _normalize_section_map(data, source_name):
     unknown_sections = set(data.keys()) - set(CONFIG_SECTIONS)
     if unknown_sections:
@@ -71,6 +102,23 @@ def _normalize_section_map(data, source_name):
             raise ValueError("{} section '{}' must be a mapping".format(source_name, section))
         normalized[section] = dict(value)
     return normalized
+
+
+def parse_config_overrides(override_items):
+    overrides = _empty_section_map()
+    for item in override_items or []:
+        if "=" not in item:
+            raise ValueError("config override must use SECTION.KEY=VALUE: {}".format(item))
+        key_ref, raw_value = item.split("=", 1)
+        if "." not in key_ref:
+            raise ValueError("config override must use SECTION.KEY=VALUE: {}".format(item))
+        section, key = key_ref.split(".", 1)
+        if section not in CONFIG_SECTIONS:
+            raise ValueError("unknown config section '{}' in override '{}'".format(section, item))
+        if not key or "." in key:
+            raise ValueError("only one level of keys is supported in override '{}'".format(item))
+        overrides[section][key] = yaml.safe_load(raw_value)
+    return overrides
 
 
 def _resolve_experiment_path(config_ref):
@@ -112,7 +160,7 @@ def _load_dataset_defaults(dataset_name):
 
 
 def _merge_sectioned_config(*configs):
-    merged = {section: {} for section in CONFIG_SECTIONS}
+    merged = _empty_section_map()
     for config in configs:
         for section in CONFIG_SECTIONS:
             merged[section].update(config.get(section, {}))
@@ -130,15 +178,19 @@ def _flatten_config(sectioned_config):
     return flat_config
 
 
-def load_config(config_ref):
+def load_config(config_ref, overrides=None):
     task_defaults = _normalize_section_map(_load_yaml(TASK_CONFIG_PATH), "task defaults")
     experiment_path = _resolve_experiment_path(config_ref)
     experiment_config = _normalize_section_map(_load_yaml(experiment_path), str(experiment_path))
-    dataset_name = experiment_config["data"].get("dataset_name")
+    normalized_overrides = _normalize_section_map(overrides or {}, "config overrides")
+
+    dataset_name = normalized_overrides["data"].get("dataset_name") or experiment_config["data"].get("dataset_name")
     if not dataset_name:
         raise ValueError("experiment config must define data.dataset_name: {}".format(experiment_path))
+
     dataset_defaults = _load_dataset_defaults(dataset_name)
-    return _flatten_config(_merge_sectioned_config(task_defaults, dataset_defaults, experiment_config))
+    merged_config = _merge_sectioned_config(task_defaults, dataset_defaults, experiment_config, normalized_overrides)
+    return _flatten_config(merged_config)
 
 
 def load_param_space(param_space_ref):
@@ -178,12 +230,94 @@ def build_runtime_overrides(args, include_ckpt_path=False):
     return overrides
 
 
+def get_resolved_config_path(conf):
+    return Path(conf["exp_dir"]) / "resolved_config.yaml"
+
+
+def get_metrics_path(conf):
+    return Path(conf["exp_dir"]) / "metrics.json"
+
+
+def ensure_experiment_dir(conf):
+    Path(conf["exp_dir"]).mkdir(parents=True, exist_ok=True)
+
+
+def save_resolved_config(conf):
+    ensure_experiment_dir(conf)
+    resolved_config = {key: _serialize_value(value) for key, value in sorted(conf.items())}
+    _save_yaml(get_resolved_config_path(conf), resolved_config)
+    return get_resolved_config_path(conf)
+
+
+def load_saved_metrics(conf):
+    metrics_path = get_metrics_path(conf)
+    if not metrics_path.exists():
+        return None
+    with metrics_path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _serialize_value(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, tuple):
+        return [_serialize_value(item) for item in value]
+    if isinstance(value, list):
+        return [_serialize_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _serialize_value(item) for key, item in value.items()}
+    if hasattr(value, "item") and callable(value.item):
+        return value.item()
+    return value
+
+
+def _extract_scalar_metric(value):
+    value = _serialize_value(value)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def _build_metric_record(conf, status, ckpt_path=None, metrics=None, error=None, val_metric_value=None):
+    metric_values = {}
+    if metrics:
+        metric_values["mae"] = _extract_scalar_metric(metrics.get("test/mae"))
+        metric_values["mse"] = _extract_scalar_metric(metrics.get("test/mse"))
+    return {
+        "model_name": conf["model_name"],
+        "dataset_name": conf["dataset_name"],
+        "hist_len": int(conf["hist_len"]),
+        "pred_len": int(conf["pred_len"]),
+        "seed": int(conf["seed"]),
+        "conf_hash": conf["conf_hash"],
+        "exp_dir": str(Path(conf["exp_dir"]).resolve()),
+        "ckpt_path": None if ckpt_path is None else str(ckpt_path),
+        "status": status,
+        "error": error,
+        "val_metric_name": conf.get("val_metric"),
+        "val_metric_value": _extract_scalar_metric(val_metric_value),
+        **metric_values,
+    }
+
+
+def save_metrics(conf, metrics):
+    ensure_experiment_dir(conf)
+    serialized_metrics = {key: _serialize_value(value) for key, value in metrics.items()}
+    _save_json(get_metrics_path(conf), serialized_metrics)
+    return get_metrics_path(conf)
+
+
 def build_callbacks(conf, training=True):
     if not training:
         return []
 
+    checkpoint_dir = Path(conf["exp_dir"]) / "checkpoints"
     callbacks = [
         ModelCheckpoint(
+            dirpath=str(checkpoint_dir),
             monitor=conf["val_metric"],
             mode="min",
             save_top_k=1,
@@ -221,7 +355,11 @@ def build_logger(conf):
 
 
 def build_experiment(conf, training=True):
+    from easytsf.data import DataInterface
+    from easytsf.task import ForecastTask
+
     L.seed_everything(conf["seed"])
+    ensure_experiment_dir(conf)
     datamodule = DataInterface(**conf)
     finalized_conf = dict(conf)
     finalized_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader()))
@@ -235,7 +373,7 @@ def build_experiment(conf, training=True):
         max_epochs=finalized_conf["max_epochs"],
         gradient_clip_algorithm=finalized_conf.get("gradient_clip_algorithm", "norm"),
         gradient_clip_val=finalized_conf["gradient_clip_val"],
-        default_root_dir=finalized_conf["save_root"],
+        default_root_dir=finalized_conf["exp_dir"],
         enable_checkpointing=training,
     )
     return ExperimentComponents(
@@ -271,18 +409,52 @@ def resolve_ckpt_path(conf, ckpt_path):
     return str(candidates[0])
 
 
+def _get_model_checkpoint_callback(trainer):
+    for callback in trainer.callbacks:
+        if isinstance(callback, ModelCheckpoint):
+            return callback
+    return None
+
+
 def run_training(conf):
     experiment = build_experiment(conf, training=True)
+    save_resolved_config(experiment.conf)
     experiment.trainer.fit(model=experiment.task, datamodule=experiment.datamodule)
-    experiment.trainer.test(experiment.task, datamodule=experiment.datamodule, ckpt_path="best")
-    return experiment
+
+    checkpoint_callback = _get_model_checkpoint_callback(experiment.trainer)
+    best_ckpt_path = None
+    if checkpoint_callback is not None and checkpoint_callback.best_model_path:
+        best_ckpt_path = checkpoint_callback.best_model_path
+
+    fit_metrics = dict(experiment.trainer.callback_metrics)
+    test_results = experiment.trainer.test(experiment.task, datamodule=experiment.datamodule, ckpt_path="best")
+    test_metrics = test_results[0] if test_results else {}
+    metrics = _build_metric_record(
+        experiment.conf,
+        status="success",
+        ckpt_path=best_ckpt_path,
+        metrics=test_metrics,
+        val_metric_value=fit_metrics.get(experiment.conf["val_metric"]),
+    )
+    save_metrics(experiment.conf, metrics)
+    return metrics
 
 
 def run_test(conf, ckpt_path):
     experiment = build_experiment(conf, training=False)
-    experiment.trainer.test(
+    save_resolved_config(experiment.conf)
+    resolved_ckpt_path = resolve_ckpt_path(experiment.conf, ckpt_path)
+    test_results = experiment.trainer.test(
         experiment.task,
         datamodule=experiment.datamodule,
-        ckpt_path=resolve_ckpt_path(experiment.conf, ckpt_path),
+        ckpt_path=resolved_ckpt_path,
     )
-    return experiment
+    test_metrics = test_results[0] if test_results else {}
+    metrics = _build_metric_record(
+        experiment.conf,
+        status="success",
+        ckpt_path=resolved_ckpt_path,
+        metrics=test_metrics,
+    )
+    save_metrics(experiment.conf, metrics)
+    return metrics
