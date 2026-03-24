@@ -75,6 +75,20 @@ def load_dataset_arrays(npz_path, use_mmap=False, cache_npz_as_npy=None):
     return variable, timestamp
 
 
+def load_graph_array(graph_path):
+    loaded = np.load(graph_path, allow_pickle=False)
+    if isinstance(loaded, np.lib.npyio.NpzFile):
+        try:
+            if "graph" not in loaded:
+                raise KeyError("graph file must contain a 'graph' array: {}".format(graph_path))
+            graph = loaded["graph"]
+        finally:
+            loaded.close()
+    else:
+        graph = loaded
+    return np.asarray(graph, dtype=np.float32)
+
+
 class GeneralTSFDataset(Dataset):
     def __init__(self, hist_len, pred_len, variable, time_feature, precompute_window_index=False):
         self.hist_len = hist_len
@@ -125,11 +139,21 @@ class DataInterface(pl.LightningDataModule):
         self.precompute_window_index = kwargs.get("precompute_window_index", False)
         self.data_path = Path(kwargs["data_root"]) / "{}.npz".format(kwargs["dataset_name"])
         self.config = kwargs
+        self.graph_path = self._resolve_graph_path(kwargs.get("graph_path"))
 
         self.variable, self.time_feature = self._read_data()
+        self.graph = self._read_graph()
         self._train_loader = None
         self._val_loader = None
         self._test_loader = None
+
+    def _resolve_graph_path(self, graph_path):
+        if not graph_path:
+            return None
+        resolved_path = Path(graph_path).expanduser()
+        if resolved_path.is_absolute():
+            return resolved_path
+        return Path(self.config["data_root"]) / resolved_path
 
     def _read_data(self):
         variable, raw_timestamp = load_dataset_arrays(
@@ -165,6 +189,11 @@ class DataInterface(pl.LightningDataModule):
                 raise NotImplementedError("unsupported time feature: {}".format(tf_cls))
 
         return variable, time_feature
+
+    def _read_graph(self):
+        if self.graph_path is None:
+            return None
+        return load_graph_array(self.graph_path)
 
     def _create_loader(self, dataset, batch_size, shuffle, drop_last):
         loader_args = dict(

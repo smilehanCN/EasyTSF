@@ -1,6 +1,9 @@
 import hashlib
+import importlib
+import importlib.util
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -10,17 +13,16 @@ import yaml
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger, WandbLogger
 
-from easytsf.util import cal_conf_hash, load_module_from_path, parse_devices
 
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_ROOT = PROJECT_ROOT / "config"
-TASK_CONFIG_PATH = CONFIG_ROOT / "tasks" / "forecast.yaml"
+TASK_CONFIG_DIR = CONFIG_ROOT / "tasks"
 DATASET_CATALOG_PATH = CONFIG_ROOT / "datasets" / "catalog.yaml"
 EXPERIMENT_CONFIG_DIR = CONFIG_ROOT / "experiments"
 SEARCH_SPACE_DIR = CONFIG_ROOT / "search_spaces"
 STUDY_CONFIG_DIR = CONFIG_ROOT / "studies"
 CONFIG_SECTIONS = ("model", "data", "train", "runtime")
+DEFAULT_TASK_NAME = "mtsf"
 
 
 @dataclass
@@ -29,6 +31,67 @@ class ExperimentComponents:
     trainer: L.Trainer
     datamodule: Any
     task: Any
+
+
+def _normalize_hash_value(value):
+    if isinstance(value, dict):
+        return {key: _normalize_hash_value(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_hash_value(item) for item in value]
+    if isinstance(value, set):
+        return sorted(_normalize_hash_value(item) for item in value)
+    return value
+
+
+def cal_conf_hash(config, useless_key=None, hash_len=10):
+    if useless_key is None:
+        useless_key = ["save_root", "data_root", "seed", "ckpt_path", "conf_hash", "exp_dir", "use_wandb", "use_ray"]
+
+    filtered_config = {
+        key: _normalize_hash_value(value)
+        for key, value in config.items()
+        if key not in useless_key
+    }
+    conf_str = json.dumps(filtered_config, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
+
+    md5 = hashlib.md5()
+    md5.update(conf_str.encode("utf-8"))
+    return md5.hexdigest()[:hash_len]
+
+
+def load_module_from_path(module_name, exp_conf_path):
+    spec = importlib.util.spec_from_file_location(module_name, exp_conf_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def parse_devices(devices):
+    if devices is None:
+        return "auto"
+    if isinstance(devices, int):
+        return devices
+    if isinstance(devices, (list, tuple)):
+        return [int(d) for d in devices]
+    if not isinstance(devices, str):
+        return devices
+
+    value = devices.strip()
+    if value == "":
+        return "auto"
+    if value.lower() == "auto":
+        return "auto"
+    if value in {"-1", "all"}:
+        return -1
+    if "," in value:
+        parts = [p.strip() for p in value.split(",") if p.strip() != ""]
+        if len(parts) == 0:
+            return "auto"
+        return [int(p) for p in parts]
+    if value.lstrip("-").isdigit():
+        return int(value)
+    return value
 
 
 def add_shared_runtime_args(parser):
@@ -159,6 +222,13 @@ def _load_dataset_defaults(dataset_name):
     return _normalize_section_map(dataset_entry, "dataset '{}'".format(dataset_name))
 
 
+def _load_task_defaults(task_name):
+    task_config_path = TASK_CONFIG_DIR / "{}.yaml".format(task_name)
+    if not task_config_path.exists():
+        raise FileNotFoundError("task defaults not found: {}".format(task_config_path))
+    return _normalize_section_map(_load_yaml(task_config_path), "{} task defaults".format(task_name))
+
+
 def _merge_sectioned_config(*configs):
     merged = _empty_section_map()
     for config in configs:
@@ -179,10 +249,15 @@ def _flatten_config(sectioned_config):
 
 
 def load_config(config_ref, overrides=None):
-    task_defaults = _normalize_section_map(_load_yaml(TASK_CONFIG_PATH), "task defaults")
     experiment_path = _resolve_experiment_path(config_ref)
     experiment_config = _normalize_section_map(_load_yaml(experiment_path), str(experiment_path))
     normalized_overrides = _normalize_section_map(overrides or {}, "config overrides")
+    task_name = (
+        normalized_overrides["runtime"].get("task_name")
+        or experiment_config["runtime"].get("task_name")
+        or DEFAULT_TASK_NAME
+    )
+    task_defaults = _load_task_defaults(task_name)
 
     dataset_name = normalized_overrides["data"].get("dataset_name") or experiment_config["data"].get("dataset_name")
     if not dataset_name:
@@ -287,6 +362,7 @@ def _build_metric_record(conf, status, ckpt_path=None, metrics=None, error=None,
         metric_values["mae"] = _extract_scalar_metric(metrics.get("test/mae"))
         metric_values["mse"] = _extract_scalar_metric(metrics.get("test/mse"))
     return {
+        "task_name": conf.get("task_name", DEFAULT_TASK_NAME),
         "model_name": conf["model_name"],
         "dataset_name": conf["dataset_name"],
         "hist_len": int(conf["hist_len"]),
@@ -356,14 +432,22 @@ def build_logger(conf):
 
 def build_experiment(conf, training=True):
     from easytsf.data import DataInterface
-    from easytsf.task import ForecastTask
+    from easytsf.task import MTSFTask, STFTask
 
     L.seed_everything(conf["seed"])
     ensure_experiment_dir(conf)
     datamodule = DataInterface(**conf)
     finalized_conf = dict(conf)
     finalized_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader()))
-    task = ForecastTask(**finalized_conf)
+    task_name = finalized_conf.get("task_name", DEFAULT_TASK_NAME)
+    if task_name == "mtsf":
+        task = MTSFTask(**finalized_conf)
+    elif task_name == "stf":
+        if datamodule.graph is None:
+            raise ValueError("stf experiment requires data.graph_path for dataset '{}'".format(finalized_conf["dataset_name"]))
+        task = STFTask(graph=datamodule.graph, **finalized_conf)
+    else:
+        raise ValueError("unsupported task_name: {}".format(task_name))
     trainer = L.Trainer(
         accelerator=finalized_conf["accelerator"],
         devices=finalized_conf["devices"],
@@ -440,7 +524,7 @@ def run_training(conf):
     return metrics
 
 
-def run_test(conf, ckpt_path):
+def run_evaluation(conf, ckpt_path):
     experiment = build_experiment(conf, training=False)
     save_resolved_config(experiment.conf)
     resolved_ckpt_path = resolve_ckpt_path(experiment.conf, ckpt_path)

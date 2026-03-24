@@ -1,0 +1,4 @@
+name: stgcn_core
+seeds: [0, 1, 2]
+cases:
+  - experiment: stgcn/pems03

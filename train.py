@@ -2,7 +2,7 @@ from pathlib import Path
 
 import argparse
 
-from easytsf.experiment import (
+from easytsf.workflow.experiment import (
     add_config_override_args,
     add_shared_runtime_args,
     add_tune_args,

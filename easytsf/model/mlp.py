@@ -82,12 +82,12 @@ class VarAwareMLP(nn.Module):
         return x
 
 
-class MLP(nn.Module):
+class Model(nn.Module):
 
     def __init__(self, hist_len, pred_len, var_num, freq, use_norm, patch_size, patch_step, init_dim, dim_assign_alg,
                  use_tod=False, use_dow=False, head_drop=0.1, encoder_drop=0.0, use_tokenizer_var_aware=True,
                  use_encoder_var_aware=True, encoder_type=None):
-        super(MLP, self).__init__()
+        super().__init__()
         self.hist_len = hist_len
         self.pred_len = pred_len
         self.use_norm = use_norm

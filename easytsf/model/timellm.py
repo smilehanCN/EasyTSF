@@ -145,10 +145,10 @@ class FlattenHead(nn.Module):
         return x
 
 
-class TimeLLM(nn.Module):
+class Model(nn.Module):
     def __init__(self, hist_len, pred_len, var_num, d_model, n_heads, d_ff, patch_len, stride, llm_model,
                  local_hf_cache_dir, llm_dim, llm_layers, description, dropout):
-        super(TimeLLM, self).__init__()
+        super().__init__()
         self.hist_len = hist_len
         self.pred_len = pred_len
         self.d_ff = d_ff

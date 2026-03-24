@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.optim.lr_scheduler as lrs
 
 
-class ForecastTask(L.LightningModule):
+class MTSFTask(L.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
         self.save_hyperparameters()
@@ -22,10 +22,11 @@ class ForecastTask(L.LightningModule):
 
     def _build_model(self):
         model_name = self.hparams.model_name
-        module = importlib.import_module(".{}".format(model_name), package="easytsf.model")
-        if not hasattr(module, model_name):
-            raise ValueError("model {} is not defined in easytsf.model.{}".format(model_name, model_name))
-        model_cls = getattr(module, model_name)
+        module_name = model_name.lower()
+        module = importlib.import_module(".{}".format(module_name), package="easytsf.model")
+        if not hasattr(module, "Model"):
+            raise ValueError("easytsf.model.{} must define a top-level Model class".format(module_name))
+        model_cls = getattr(module, "Model")
         model_args = {}
         for arg in inspect.getfullargspec(model_cls.__init__).args[1:]:
             if hasattr(self.hparams, arg):

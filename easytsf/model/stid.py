@@ -21,10 +21,10 @@ class ResMLP(nn.Module):
         return output
 
 
-class STID(nn.Module):
+class Model(nn.Module):
     def __init__(self, hist_len, pred_len, var_num, block_num, ts_emb_dim, node_emb_dim, tod_emb_dim, dow_emb_dim,
                  freq):
-        super(STID, self).__init__()
+        super().__init__()
         self.in_len = hist_len
         self.out_len = pred_len
         self.var_num = var_num

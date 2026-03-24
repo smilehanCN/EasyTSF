@@ -60,9 +60,9 @@ class RevIN(nn.Module):
         return x
 
 
-class RLinear(nn.Module):
+class Model(nn.Module):
     def __init__(self, hist_len, pred_len, var_num, rev=True, drop=0.1):
-        super(RLinear, self).__init__()
+        super().__init__()
         self.model = nn.Linear(hist_len, pred_len)
         self.dropout = nn.Dropout(drop)
         self.rev = RevIN(var_num) if rev else None

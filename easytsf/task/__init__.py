@@ -1,3 +1,4 @@
-from .forecast import ForecastTask
+from .mtsf import MTSFTask
+from .stf import STFTask
 
-__all__ = ["ForecastTask"]
+__all__ = ["MTSFTask", "STFTask"]

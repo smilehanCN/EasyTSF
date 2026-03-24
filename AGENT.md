@@ -1,79 +1,118 @@
 # AGENT.md
 
-本文件面向参与本仓库工作的 AI 代码代理。目标是让代理在尽量少打扰研究流程的前提下，理解当前结构边界，并在 forecast 主链路内做最小必要改动。
+This file is for AI coding agents working in this repository. The goal is to keep the repo optimized for rapid multivariate and static-graph spatiotemporal forecasting research, not for heavy framework building.
 
-## 仓库使命
+## Mission
 
-- 用统一 forecast pipeline 支撑时间序列预测实验。
-- 在共享流程下保证不同模型的对比尽可能公平、可复现、可追踪。
-- 将改动重点放在模型本身，而不是反复搭训练脚手架。
+- Use shared experiment/study workflow to support fast model iteration across `mtsf` and static-graph `stf`.
+- Keep experiments comparable, reproducible, and easy to resume.
+- Spend complexity on model ideas and benchmark workflow, not on scaffolding.
 
-## 当前边界
+## Core Concepts
 
-- 只维护 forecasting 主链路。
-- 不再维护历史 runner 变体、重建/可视化/辅助 loss 等旧实验分支。
-- 不重新引入 `ray_tune.py`、Python `exp_conf` 配置或 `exp_runner` 分发链。
-- 不为了“更工程化”再加插件系统、注册器体系或大规模测试矩阵。
+### `experiment`
 
-## 架构地图
+An `experiment` is one runnable training/evaluation preset. It already contains:
+
+- model hyper-parameters
+- dataset selection
+- dataset-specific training hyper-parameters
+- one default `hist_len/pred_len`
+
+The preferred layout is `config/experiments/<model_id>/<dataset_id>.yaml`, with lowercase config ids.
+
+### `study`
+
+A `study` is a thin batch benchmark specification. It only decides:
+
+- which experiment presets to run
+- which seeds to repeat
+- which case-level overrides to apply
+- how results are resumed and aggregated
+
+`study` must not become a second experiment layer. Do not move dataset-specific training recipes into study overrides.
+
+## Current Boundaries
+
+- Maintain `mtsf` and static-graph `stf` only.
+- Do not treat flattened grid data or future dynamic-graph variants as already-native tasks.
+- Do not reintroduce old runner variants, visualization branches, auxiliary losses, or task-dispatch trees.
+- Do not rebuild `ray_tune.py`, Python `exp_conf`, or `exp_runner` style orchestration.
+- Do not add plugin systems, registries, dataset-profile layers, or large test matrices unless the repository goal changes.
+
+## Architecture Map
 
 ### CLI
 
-- `train.py`：统一训练入口；传入 `--param_space` 时执行 Ray Tune
-- `test.py`：统一测试入口；支持 `best`、`last` 或显式 checkpoint 路径
+- `train.py`: single-experiment training entry
+- `evaluate.py`: single-experiment evaluation entry
+- `study.py`: batch benchmark entry
 
-### 配置
+### Config
 
-- `config/tasks/forecast.yaml`：forecast 默认项
-- `config/datasets/catalog.yaml`：数据集元信息
-- `config/experiments/<ModelName>/*.yaml`：实验配置
-- `config/search_spaces/<ModelName>/*.py`：Ray Tune 搜索空间
+- `config/tasks/mtsf.yaml`: default task config for the MTSF path
+- `config/tasks/stf.yaml`: default task config for the static-graph STF path
+- `config/datasets/catalog.yaml`: dataset metadata and data-loading hints
+- `config/experiments/<model_id>/*.yaml`: experiment presets
+- `config/studies/<model_id>/*.yaml`: study specs
+- `config/search_spaces/<model_id>/*.py`: Ray Tune search spaces
 
-配置融合优先级固定为：
+Config merge priority is fixed:
 
 `experiment > dataset > task`
 
-不要破坏这条规则，也不要把实验差异散回脚本常量。
+Do not break this rule and do not scatter experiment-specific constants into scripts.
+Use `runtime.task_name` to choose the task defaults; when omitted, default to `mtsf`.
 
-### 数据
+### Data
 
-- `easytsf/data/data_module.py` 中的 `DataInterface` 是统一数据入口。
-- 数据格式默认为 `dataset/<dataset_name>.npz`。
-- 当前主链路只依赖 `scaled_variable` 和 `timestamp`。
-- train/val/test 的滑窗切分逻辑集中在 `DataInterface`，不要为单个模型复制一份。
+- `easytsf/data/data_module.py` contains the shared `DataInterface`.
+- Default data format is `dataset/<dataset_name>.npz`.
+- The current pipeline only requires `scaled_variable` and `timestamp`.
+- Static graph datasets may also define `data.graph_path`, resolved relative to `data_root`.
+- Sliding-window split logic belongs in `DataInterface`, not in model-specific loaders.
 
-### 任务层
+### Task Layer
 
-- `easytsf/task/forecast.py` 中的 `ForecastTask` 是唯一公开任务层。
-- `pipeline` 指的是端到端训练链路，不是 LightningModule 名称。
+- `easytsf/task/mtsf.py` contains `MTSFTask`.
+- `easytsf/task/stf.py` contains `STFTask`.
+- Keep task semantics separate: do not push graph-aware behavior into `MTSFTask`.
 
-### 模型层
+### Model Layer
 
-- `easytsf/model/<ModelName>.py` 中应定义与 `model_name` 同名的类。
-- 默认模型接口是 `forward(var_x, marker_x)`。
-- 默认返回张量应与标签形状兼容，通常是 `[B, pred_len, N]`。
+- `easytsf/model/<model_id>.py` should define a top-level `Model` class.
+- Each model owns exactly one file. Keep model-private helpers inside that file.
+- Model file names are lowercase. `model_name` may keep the paper-style spelling, but the main class name is always `Model`.
+- Model interfaces are task-specific:
+  - `mtsf`: `forward(var_x, marker_x)`
+  - `stf`: `forward(var_x, marker_x, graph)`
+- The default output shape should stay label-compatible, typically `[B, pred_len, N]`.
 
-### 公共层
+### Workflow Layer
 
-- 当前仍在使用的公共层主要是 `easytsf/layer/transformer.py`。
-- 如果逻辑只属于某个模型，不要急于抽到公共层。
+- `easytsf/workflow/experiment.py` contains single-experiment orchestration and config loading.
+- `easytsf/workflow/study.py` contains batch benchmark orchestration.
+- Keep workflow code out of `data`, `model`, and `task`.
 
-## 修改准则
+## Change Guidelines
 
-- 新增标准模型时，优先只改 `easytsf/model/` 和对应 YAML config。
-- 训练逻辑变化应尽量收敛在 `ForecastTask`，不要把 loss、调度细节散进模型。
-- 不重新引入按 task 类型分发的多任务层结构，除非仓库目标发生变化。
-- 文档必须以当前仓库真实状态为准，不要声明不存在的入口或能力。
+- When adding a standard model, prefer changing only `easytsf/model/` and the corresponding experiment presets.
+- Use `--set section.key=value` for temporary overrides instead of creating many one-off configs.
+- If a dataset or horizon needs a long-lived special recipe, promote it to an experiment preset instead of growing study complexity.
+- Keep batch benchmarking thin: explicit cases, seeds, resume, and aggregation.
+- Do not reintroduce model-private code into a shared `layer/` package unless real reuse already exists.
+- Documentation must match the actual repository state. Do not describe features, files, or entrypoints that do not exist.
 
-## 验证准则
+## Validation Guidelines
 
-默认只要求轻量验证，不要求完整测试矩阵。优先做：
+Default validation should stay lightweight. Prefer:
 
 1. `conda activate easytsf`
 2. `python train.py -h`
-3. `python test.py -h`
-4. YAML 实验配置可加载
-5. 至少一个搜索空间模块可加载
-6. 若本地有数据，再考虑最小 smoke run
+3. `python evaluate.py -h`
+4. `python study.py -h`
+5. Experiment YAMLs can be loaded
+6. At least one search-space module can be loaded
+7. If local data exists, run the smallest possible smoke benchmark
 
-对研究型改动，验证目标是“主链路未被破坏”，不是建立完整 CI。
+The validation goal for research-oriented changes is: the main path still works. It is not to build a full CI discipline inside this repo.

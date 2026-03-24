@@ -1,12 +1,12 @@
 import argparse
-from easytsf.experiment import (
+from easytsf.workflow.experiment import (
     add_config_override_args,
     add_shared_runtime_args,
     build_runtime_overrides,
     finalize_runtime_conf,
     load_config,
     parse_config_overrides,
-    run_test,
+    run_evaluation,
 )
 
 if __name__ == "__main__":
@@ -18,4 +18,4 @@ if __name__ == "__main__":
 
     conf = load_config(args.config, overrides=parse_config_overrides(args.config_overrides))
     conf.update(build_runtime_overrides(args, include_ckpt_path=True))
-    run_test(finalize_runtime_conf(conf), ckpt_path=args.ckpt_path)
+    run_evaluation(finalize_runtime_conf(conf), ckpt_path=args.ckpt_path)

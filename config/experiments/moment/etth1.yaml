@@ -1,0 +1,16 @@
+model:
+  model_name: MOMENT
+  moment_model_name_or_path: AutonLab/MOMENT-1-small
+  freeze_encoder: true
+  freeze_embedder: true
+  freeze_head: false
+  head_dropout: 0.1
+data:
+  dataset_name: ETTh1
+  hist_len: 96
+  pred_len: 96
+train:
+  batch_size: 32
+  max_epochs: 20
+  lr: 0.0001
+  optimizer: AdamW

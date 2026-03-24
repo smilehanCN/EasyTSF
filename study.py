@@ -1,6 +1,6 @@
 import argparse
 
-from easytsf.study import run_study
+from easytsf.workflow.study import run_study
 
 
 def build_arg_parser():

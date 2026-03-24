@@ -4,15 +4,15 @@ from pathlib import Path
 
 import yaml
 
-from easytsf.experiment import (
+from .experiment import (
     CONFIG_SECTIONS,
     STUDY_CONFIG_DIR,
     finalize_runtime_conf,
     load_config,
     load_saved_metrics,
+    run_training,
     save_metrics,
     save_resolved_config,
-    run_training,
 )
 
 
@@ -107,6 +107,7 @@ def _default_case_name(conf):
 
 def _build_failure_record(conf, error):
     return {
+        "task_name": conf.get("task_name", "mtsf"),
         "model_name": conf["model_name"],
         "dataset_name": conf["dataset_name"],
         "hist_len": int(conf["hist_len"]),
@@ -144,6 +145,7 @@ def _write_runs_report(study_dir, rows):
         "case_name",
         "experiment",
         "resume_hit",
+        "task_name",
         "model_name",
         "dataset_name",
         "hist_len",
@@ -176,6 +178,7 @@ def _write_runs_report(study_dir, rows):
 def _write_summary_report(study_dir, runs_rows):
     summary_path = Path(study_dir) / "summary.csv"
     summary_columns = [
+        "task_name",
         "model_name",
         "dataset_name",
         "hist_len",
@@ -190,7 +193,7 @@ def _write_summary_report(study_dir, runs_rows):
     for row in runs_rows:
         if row.get("status") != "success":
             continue
-        group_key = (row["model_name"], row["dataset_name"], row["hist_len"], row["pred_len"])
+        group_key = (row["task_name"], row["model_name"], row["dataset_name"], row["hist_len"], row["pred_len"])
         grouped.setdefault(group_key, {"mae": [], "mse": []})
         if row.get("mae") is not None:
             grouped[group_key]["mae"].append(float(row["mae"]))
@@ -204,10 +207,11 @@ def _write_summary_report(study_dir, runs_rows):
         mse_values = metric_group["mse"]
         summary_rows.append(
             {
-                "model_name": group_key[0],
-                "dataset_name": group_key[1],
-                "hist_len": group_key[2],
-                "pred_len": group_key[3],
+                "task_name": group_key[0],
+                "model_name": group_key[1],
+                "dataset_name": group_key[2],
+                "hist_len": group_key[3],
+                "pred_len": group_key[4],
                 "mae_mean": statistics.mean(mae_values) if mae_values else None,
                 "mae_std": statistics.pstdev(mae_values) if len(mae_values) > 1 else 0.0 if mae_values else None,
                 "mse_mean": statistics.mean(mse_values) if mse_values else None,
@@ -257,9 +261,10 @@ def run_study(
         for spec in run_specs:
             conf = spec["conf"]
             print(
-                "[dry-run] case={} seed={} experiment={} dataset={} hist_len={} pred_len={} exp_dir={}".format(
+                "[dry-run] case={} seed={} task={} experiment={} dataset={} hist_len={} pred_len={} exp_dir={}".format(
                     spec["case_name"],
                     conf["seed"],
+                    conf.get("task_name", "mtsf"),
                     spec["experiment"],
                     conf["dataset_name"],
                     conf["hist_len"],

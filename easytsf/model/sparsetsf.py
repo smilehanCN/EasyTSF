@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 
 
-class SparseTSF(nn.Module):
+class Model(nn.Module):
     def __init__(self, hist_len, pred_len, var_num, period_len, d_model, model_type):
-        super(SparseTSF, self).__init__()
+        super().__init__()
 
         # get parameters
         self.seq_len = hist_len
