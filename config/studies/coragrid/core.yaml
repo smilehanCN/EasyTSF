@@ -1,0 +1,5 @@
+name: coragrid_core
+seeds: [0]
+cases:
+  - experiment: coragrid/grid2d_demo
+  - experiment: coragrid/grid3d_demo

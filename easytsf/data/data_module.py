@@ -89,6 +89,34 @@ def load_graph_array(graph_path):
     return np.asarray(graph, dtype=np.float32)
 
 
+def build_time_feature(raw_timestamp, time_feature_cls, norm_time_feature, freq):
+    timestamp = pd.DatetimeIndex(raw_timestamp)
+    if len(time_feature_cls) == 0:
+        return np.empty((len(timestamp), 0), dtype=np.float32)
+
+    time_feature = np.empty((len(timestamp), len(time_feature_cls)), dtype=np.float32)
+    for feature_idx, tf_cls in enumerate(time_feature_cls):
+        if tf_cls == "tod":
+            tod_size = int((24 * 60) / freq) - 1
+            tod = (timestamp.hour.to_numpy() * 60 + timestamp.minute.to_numpy()) / freq
+            time_feature[:, feature_idx] = tod / tod_size - 0.5 if norm_time_feature else tod
+        elif tf_cls == "dow":
+            dow_size = 7 - 1
+            dow = timestamp.dayofweek.to_numpy()
+            time_feature[:, feature_idx] = dow / dow_size - 0.5 if norm_time_feature else dow
+        elif tf_cls == "dom":
+            dom_size = 31 - 1
+            dom = timestamp.day.to_numpy() - 1
+            time_feature[:, feature_idx] = dom / dom_size - 0.5 if norm_time_feature else dom
+        elif tf_cls == "doy":
+            doy_size = 366 - 1
+            doy = timestamp.dayofyear.to_numpy() - 1
+            time_feature[:, feature_idx] = doy / doy_size - 0.5 if norm_time_feature else doy
+        else:
+            raise NotImplementedError("unsupported time feature: {}".format(tf_cls))
+    return time_feature
+
+
 class GeneralTSFDataset(Dataset):
     def __init__(self, hist_len, pred_len, variable, time_feature, precompute_window_index=False):
         self.hist_len = hist_len
@@ -162,32 +190,32 @@ class DataInterface(pl.LightningDataModule):
             cache_npz_as_npy=self.cache_npz_as_npy,
         )
         variable = variable.astype(np.float32, copy=False)
-        timestamp = pd.DatetimeIndex(raw_timestamp)
-
-        if len(self.time_feature_cls) == 0:
-            return variable, np.empty((len(variable), 0), dtype=np.float32)
-
-        time_feature = np.empty((len(variable), len(self.time_feature_cls)), dtype=np.float32)
-        for feature_idx, tf_cls in enumerate(self.time_feature_cls):
-            if tf_cls == "tod":
-                tod_size = int((24 * 60) / self.config["freq"]) - 1
-                tod = (timestamp.hour.to_numpy() * 60 + timestamp.minute.to_numpy()) / self.config["freq"]
-                time_feature[:, feature_idx] = tod / tod_size - 0.5 if self.norm_time_feature else tod
-            elif tf_cls == "dow":
-                dow_size = 7 - 1
-                dow = timestamp.dayofweek.to_numpy()
-                time_feature[:, feature_idx] = dow / dow_size - 0.5 if self.norm_time_feature else dow
-            elif tf_cls == "dom":
-                dom_size = 31 - 1
-                dom = timestamp.day.to_numpy() - 1
-                time_feature[:, feature_idx] = dom / dom_size - 0.5 if self.norm_time_feature else dom
-            elif tf_cls == "doy":
-                doy_size = 366 - 1
-                doy = timestamp.dayofyear.to_numpy() - 1
-                time_feature[:, feature_idx] = doy / doy_size - 0.5 if self.norm_time_feature else doy
-            else:
-                raise NotImplementedError("unsupported time feature: {}".format(tf_cls))
-
+        if variable.ndim != 2:
+            if variable.ndim == 1:
+                raise ValueError(
+                    "mtsf/stf dataset '{}' must store scaled_variable as [L, N]; "
+                    "for univariate forecasting, store it as [L, 1] instead of raw [L]".format(self.data_path)
+                )
+            raise ValueError(
+                "mtsf/stf dataset '{}' must store scaled_variable as [L, N], but received shape {}".format(
+                    self.data_path,
+                    tuple(variable.shape),
+                )
+            )
+        if len(raw_timestamp) != len(variable):
+            raise ValueError(
+                "timestamp length {} does not match data length {} for {}".format(
+                    len(raw_timestamp),
+                    len(variable),
+                    self.data_path,
+                )
+            )
+        time_feature = build_time_feature(
+            raw_timestamp,
+            self.time_feature_cls,
+            self.norm_time_feature,
+            self.config["freq"],
+        )
         return variable, time_feature
 
     def _read_graph(self):

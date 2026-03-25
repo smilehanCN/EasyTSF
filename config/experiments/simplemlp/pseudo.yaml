@@ -1,0 +1,12 @@
+model:
+  model_name: SimpleMLP
+  hidden_dim: 64
+  dropout: 0.1
+data:
+  dataset_name: Pseudo
+  hist_len: 96
+  pred_len: 96
+train:
+  batch_size: 32
+  max_epochs: 20
+  lr: 0.001

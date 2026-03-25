@@ -1,0 +1,33 @@
+model:
+  model_name: CoRAGraph
+  foundation_model: MOMENT
+  moment_model_name_or_path: AutonLab/MOMENT-1-small
+  freeze_encoder: true
+  freeze_embedder: true
+  freeze_head: false
+  plugin_dim: 256
+  num_before: 2
+  num_after: 3
+  beta: 0.2
+  dropout: 0.2
+  head_dropout: 0.1
+  plugin_lr: 0.0001
+  backbone_lr: 0.00005
+  gama: 0.001
+  K: 3
+  de: 4
+  thresold: 0.3
+  structure_prior_weight: 0.5
+  neighbor_order: 1
+data:
+  dataset_name: PEMS03
+  hist_len: 12
+  pred_len: 12
+train:
+  batch_size: 32
+  max_epochs: 10
+  lr: 0.0001
+  optimizer: Adam
+  aux_loss_weight: 1.0
+runtime:
+  task_name: stf

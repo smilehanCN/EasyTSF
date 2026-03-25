@@ -431,21 +431,51 @@ def build_logger(conf):
 
 
 def build_experiment(conf, training=True):
-    from easytsf.data import DataInterface
-    from easytsf.task import MTSFTask, STFTask
+    from easytsf.data import DataInterface, GridDataInterface
+    from easytsf.task import Grid2DTSFTask, Grid3DTSFTask, GridSTFTask, MTSFTask, STFTask
 
     L.seed_everything(conf["seed"])
     ensure_experiment_dir(conf)
-    datamodule = DataInterface(**conf)
     finalized_conf = dict(conf)
-    finalized_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader()))
     task_name = finalized_conf.get("task_name", DEFAULT_TASK_NAME)
+    is_grid_task = task_name in {"grid2dtsf", "grid3dtsf", "gridstf"}
+    if is_grid_task:
+        datamodule = GridDataInterface(**conf)
+    else:
+        datamodule = DataInterface(**conf)
+
+    if is_grid_task:
+        finalized_conf["channel_num"] = datamodule.channel_num
+        finalized_conf["spatial_shape"] = list(datamodule.spatial_shape)
+        finalized_conf["spatial_ndim"] = int(datamodule.spatial_ndim)
+    finalized_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader()))
+
     if task_name == "mtsf":
         task = MTSFTask(**finalized_conf)
     elif task_name == "stf":
         if datamodule.graph is None:
             raise ValueError("stf experiment requires data.graph_path for dataset '{}'".format(finalized_conf["dataset_name"]))
         task = STFTask(graph=datamodule.graph, **finalized_conf)
+    elif task_name == "grid2dtsf":
+        if datamodule.spatial_ndim != 2:
+            raise ValueError(
+                "grid2dtsf experiment requires [L, C, H, W] data but dataset '{}' has spatial_ndim={}".format(
+                    finalized_conf["dataset_name"],
+                    datamodule.spatial_ndim,
+                )
+            )
+        task = Grid2DTSFTask(grid_mask=datamodule.grid_mask, coord=datamodule.coord, **finalized_conf)
+    elif task_name == "grid3dtsf":
+        if datamodule.spatial_ndim != 3:
+            raise ValueError(
+                "grid3dtsf experiment requires [L, C, X, Y, Z] data but dataset '{}' has spatial_ndim={}".format(
+                    finalized_conf["dataset_name"],
+                    datamodule.spatial_ndim,
+                )
+            )
+        task = Grid3DTSFTask(grid_mask=datamodule.grid_mask, coord=datamodule.coord, **finalized_conf)
+    elif task_name == "gridstf":
+        task = GridSTFTask(grid_mask=datamodule.grid_mask, coord=datamodule.coord, **finalized_conf)
     else:
         raise ValueError("unsupported task_name: {}".format(task_name))
     trainer = L.Trainer(

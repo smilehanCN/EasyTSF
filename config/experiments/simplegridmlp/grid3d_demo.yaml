@@ -1,0 +1,14 @@
+model:
+  model_name: SimpleGridMLP
+  hidden_dim: 64
+  dropout: 0.1
+data:
+  dataset_name: Grid3DDemo
+  hist_len: 12
+  pred_len: 12
+train:
+  batch_size: 4
+  max_epochs: 20
+  lr: 0.001
+runtime:
+  task_name: grid3dtsf

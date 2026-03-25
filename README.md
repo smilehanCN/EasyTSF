@@ -23,19 +23,23 @@ EasyTSFNext 是一个面向科研 idea 快速验证的轻量时序预测仓库�
 - `study.py`：批量科研入口；编排多个 `experiment` 并汇总多 seed 结果
 - `config/tasks/mtsf.yaml`：多元时序预测默认配置
 - `config/tasks/stf.yaml`：静态图时空预测默认配置
+- `config/tasks/grid2dtsf.yaml`：2D 规则网格时空预测默认配置
+- `config/tasks/grid3dtsf.yaml`：3D 规则网格时空预测默认配置
 - `config/datasets/catalog.yaml`：数据集元信息和数据加载默认项
 - `config/experiments/<model_id>/*.yaml`：单实验 preset，推荐按“模型 x 数据集”组织，路径使用全小写 id
 - `config/studies/<model_id>/*.yaml`：批量评测声明，只枚举要跑的 case 和 seeds，路径使用全小写 id
 - `config/search_spaces/<model_id>/*.py`：Ray Tune 搜索空间，路径使用全小写 id
-- `easytsf/data/`：`DataInterface` 和数据缓存/滑窗逻辑
-- `easytsf/task/`：当前包含 `MTSFTask` 和 `STFTask`
+- `easytsf/data/`：`DataInterface`、`GridDataInterface` 和数据缓存/滑窗逻辑
+- `easytsf/task/`：当前包含 `MTSFTask`、`STFTask`、`Grid2DTSFTask` 和 `Grid3DTSFTask`
 - `easytsf/model/`：模型实现
 - `easytsf/workflow/`：`experiment` 和 `study` 的流程实现
 
-当前仓库正式维护两条主链路：
+当前仓库正式维护四条主链路，覆盖 5 类常用 forecasting case：
 
-- `mtsf`：标准多元时序预测，输入核心形态是 `(L, N)`
+- `mtsf`：标准时序预测，输入核心形态是 `(L, N)`；单变量预测按 `(L, 1)` 处理，不接受裸 `(L,)`
 - `stf`：静态图时空预测，输入是 `(L, N)` 加一个静态 graph
+- `grid2dtsf`：2D 规则网格时空预测，输入是 `(L, C, H, W)`
+- `grid3dtsf`：3D 规则网格时空预测，输入是 `(L, C, X, Y, Z)`
 
 `study` 不抽象数据逻辑，不维护 `dataset -> 超参` 规则，只做编排、resume 和聚合。
 
@@ -70,6 +74,18 @@ python train.py -c itransformer/etth1 -d dataset -s save --seed 0
 python train.py -c stgcn/pems03 -d dataset -s save --seed 0
 python evaluate.py -c stgcn/pems03 --ckpt_path best --seed 0
 ```
+
+Simple MLP smoke baseline：
+
+```shell
+python train.py -c simplemlp/pseudo -d dataset -s save --seed 0
+python train.py -c simplemlp/etth1 -d dataset -s save --seed 0
+python train.py -c simplegraphmlp/pems03 -d dataset -s save --seed 0
+python train.py -c simplegridmlp/grid2d_demo -d dataset -s save --seed 0
+python train.py -c simplegridmlp/grid3d_demo -d dataset -s save --seed 0
+```
+
+其中单变量实验 `simplemlp/pseudo` 依赖的数据格式是 `scaled_variable.shape == [L, 1]`；如果数据文件里存成裸 `[L]`，当前仓库会直接报错并要求改成 `[L, 1]`。
 
 通过 `--set` 直接覆盖 horizon 或训练超参：
 
@@ -113,6 +129,27 @@ MOMENT 批量 benchmark：
 python study.py -s moment/core
 ```
 
+CoRA 单实验训练：
+
+```shell
+python train.py -c cora/ettm2_384for96 -d dataset -s save --seed 0
+python evaluate.py -c cora/ettm2_384for96 --ckpt_path best --seed 0
+```
+
+CoRA 批量 benchmark：
+
+```shell
+python study.py -s cora/core
+```
+
+CoRAGraph / CoRAGrid 单实验训练：
+
+```shell
+python train.py -c coragraph/pems03 -d dataset -s save --seed 0
+python train.py -c coragrid/grid2d_demo -d dataset -s save --seed 0
+python train.py -c coragrid/grid3d_demo -d dataset -s save --seed 0
+```
+
 ## Foundation Model
 
 当前仓库把时序基础模型作为普通 `mtsf` 模型接入，继续复用现有 `train.py` / `evaluate.py` / `study.py` 主链路，不新增 zero-shot pipeline 或新的 task 抽象。
@@ -137,6 +174,57 @@ python study.py -s moment/core
 
 `moment_model_name_or_path` 既可以填 Hugging Face 模型 id，也可以填本地模型目录。
 
+基于 ICLR 2026 `CoRA` 的兼容实现也已加入当前框架。这里的接入方式是：
+
+- 论文思路与官方仓库结构对齐，保留 `adapter -> projections_before -> contrastive -> projections_after -> gated fusion`
+- 当前仓库里先只支持 `CoRA + MOMENT`
+- experiment 入口：`config/experiments/cora/ettm2_384for96.yaml`
+- study 入口：`config/studies/cora/core.yaml`
+- `CoRA` 通过模型内部的 auxiliary contrastive loss 参与训练，不新增新的 task 或 CLI
+
+在此基础上，仓库现在额外提供两个原生时空迁移版本：
+
+- `CoRAGraph`：复用现有 `stf` 契约，把节点视作 graph token，引入图 diffusion prior、graph-aware projection block 和节点级 gated fusion
+- `CoRAGrid`：复用 `grid2dtsf` / `grid3dtsf` 契约，把 2D/3D 规则网格切成 spatial patch token，引入局部邻域 prior、`Conv2d/Conv3d` spatial mixer 和 patch-level gated fusion
+
+对应入口：
+
+- `config/experiments/coragraph/pems03.yaml`
+- `config/studies/coragraph/core.yaml`
+- `config/experiments/coragrid/grid2d_demo.yaml`
+- `config/experiments/coragrid/grid3d_demo.yaml`
+- `config/studies/coragrid/core.yaml`
+
+`CoRAGraph` / `CoRAGrid` 额外使用这些配置键：
+
+- `structure_prior_weight`
+- `neighbor_order`
+- `spatial_patch_size`
+- `spatial_mixer_type`
+
+当前原生网格路径只支持 forecasting fine-tune，不支持：
+
+- zero-shot foundation-model pipeline
+- probabilistic outputs
+- future covariates
+- sphere / mesh / irregular grid
+
+`CoRA` 相关模型配置键：
+
+- `foundation_model`
+- `plugin_dim`
+- `num_before`
+- `num_after`
+- `beta`
+- `dropout`
+- `head_dropout`
+- `plugin_lr`
+- `backbone_lr`
+- `gama`
+- `K`
+- `de`
+- `thresold`
+
 ## 核心概念
 
 先区分一句话版本：
@@ -159,15 +247,19 @@ python study.py -s moment/core
 - optimizer 和 scheduler 如何配置
 - train / val / test step 如何执行
 
-当前仓库维护两个公开 task：
+当前仓库维护四个公开 task：
 
 - `easytsf/task/mtsf.py` 中的 `MTSFTask`
 - `easytsf/task/stf.py` 中的 `STFTask`
+- `easytsf/task/gridstf.py` 中的 `Grid2DTSFTask`
+- `easytsf/task/gridstf.py` 中的 `Grid3DTSFTask`
 
 它们都不是“实验配置”，也不是“批量 benchmark 声明”，而是问题设定本身的训练语义承载点：
 
 - `MTSFTask` 对应标准多元时序预测，模型接口是 `forward(var_x, marker_x)`。
 - `STFTask` 对应静态图时空预测，模型接口是 `forward(var_x, marker_x, graph)`。
+- `Grid2DTSFTask` 对应 2D 规则网格时空预测，模型接口是 `forward(var_x, marker_x, grid_mask=None, coord=None)`，标签形态为 `[B, pred_len, C, H, W]`。
+- `Grid3DTSFTask` 对应 3D 规则网格时空预测，模型接口是 `forward(var_x, marker_x, grid_mask=None, coord=None)`，标签形态为 `[B, pred_len, C, X, Y, Z]`。
 
 也因此，新增模型时通常只需要改模型和 experiment preset；只有当问题设定发生变化时，才需要新增或调整 task。
 
@@ -210,6 +302,8 @@ task 由 `runtime.task_name` 决定：
 
 - 不写时默认是 `mtsf`
 - 显式写 `runtime.task_name: stf` 时，workflow 会加载 `stf` 默认配置并构建 `STFTask`
+- 显式写 `runtime.task_name: grid2dtsf` 时，workflow 会加载 `grid2dtsf` 默认配置并构建 `Grid2DTSFTask`
+- 显式写 `runtime.task_name: grid3dtsf` 时，workflow 会加载 `grid3dtsf` 默认配置并构建 `Grid3DTSFTask`
 
 ### `workflow`
 
@@ -267,7 +361,7 @@ cases:
 
 对应位置：
 
-- `config/tasks/{mtsf,stf}.yaml`
+- `config/tasks/{mtsf,stf,grid2dtsf,grid3dtsf}.yaml`
 - `config/datasets/catalog.yaml`
 - `config/experiments/<model_id>/*.yaml`
 
@@ -284,17 +378,28 @@ YAML 只使用四个顶层 section：
 
 ## 数据约定
 
-数据文件位置默认是 `dataset/<dataset_name>.npz`，当前主链路实际依赖的 key 只有：
+数据文件位置默认是 `dataset/<dataset_name>.npz`，当前主链路实际依赖的核心 key 是：
 
 - `scaled_variable`
 - `timestamp`
 
 对于 `stf` 数据集，静态 graph 不放在主 `.npz` 中，而是通过 dataset catalog 里的可选 `data.graph_path` 指向一个独立文件。该路径相对 `data_root` 解析，graph 默认是 dense float32 矩阵，形状为 `[N, N]`。
 
-额外字段会被忽略。`DataInterface` 负责：
+对于原生 grid 数据集，`scaled_variable` 的形状约定为：
+
+- 2D：`[L, C, H, W]`
+- 3D：`[L, C, X, Y, Z]`
+
+grid 主 `.npz` 还可以包含两个可选 side input：
+
+- `grid_mask`：纯空间 mask，2D 为 `[H, W]`，3D 为 `[X, Y, Z]`
+- `coord`：坐标通道在前，2D 为 `[2, H, W]`，3D 为 `[3, X, Y, Z]`
+
+额外字段会被忽略。`DataInterface` / `GridDataInterface` 负责：
 
 - 读取 `.npz`
 - 按需读取静态 graph
+- 按需读取 `grid_mask` 和 `coord`
 - 生成 `tod`、`dow`、`dom`、`doy` 等时间特征
 - 按 `hist_len` / `pred_len` 切滑窗
 - 按 `data_split` 生成 train / val / test loader
@@ -336,13 +441,18 @@ YAML 只使用四个顶层 section：
 
 ## 模型接入
 
-新增标准 `mtsf` 或 `stf` 模型时，保持下面几步即可：
+新增标准 task 模型时，保持下面几步即可：
 
 1. 在 `easytsf/model/<model_id>.py` 中定义主类 `Model`。
 2. 按所属 task 实现前向接口：
    - `mtsf` 模型：`forward(var_x, marker_x)`
    - `stf` 模型：`forward(var_x, marker_x, graph)`
-3. 返回与标签兼容的预测张量，通常是 `[B, pred_len, N]`。
+   - `grid2dtsf` 模型：`forward(var_x, marker_x, grid_mask=None, coord=None)`
+   - `grid3dtsf` 模型：`forward(var_x, marker_x, grid_mask=None, coord=None)`
+3. 返回与标签兼容的预测张量：
+   - `mtsf` / `stf`：通常是 `[B, pred_len, N]`
+   - `grid2dtsf`：通常是 `[B, pred_len, C, H, W]`
+   - `grid3dtsf`：通常是 `[B, pred_len, C, X, Y, Z]`
 4. 在 `config/experiments/<model_id>/` 下为常用数据集新增 preset。
 
 模型文件名统一全小写，一个模型只占一个文件。如果只是模型私有逻辑，就放在该模型文件内部，不要急于抽新的公共层。

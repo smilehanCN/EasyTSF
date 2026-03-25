@@ -158,3 +158,13 @@ BJAQ:
     var_num: 7
     freq: 60
     data_split: [25200, 3600, 7200]
+Grid2DDemo:
+  data:
+    dataset_name: Grid2DDemo
+    freq: 60
+    data_split: [256, 64, 64]
+Grid3DDemo:
+  data:
+    dataset_name: Grid3DDemo
+    freq: 60
+    data_split: [256, 64, 64]

@@ -10,7 +10,7 @@ EasyTSFNext 的目标不是成为通用深度学习平台，而是成为一个�
 
 仓库只维护下列公开概念：
 
-- `MTSFTask` / `STFTask`：当前公开任务层
+- `MTSFTask` / `STFTask` / `Grid2DTSFTask` / `Grid3DTSFTask`：当前公开任务层
 - `experiment`：单实验可运行配方
 - `study`：批量 benchmark 编排
 - task-aware `model.forward(...)`：按任务设定选择模型调用契约
@@ -45,25 +45,29 @@ EasyTSFNext 的目标不是成为通用深度学习平台，而是成为一个�
 
 ### 1.6 任务边界优先于“统一一切”
 
-当前仓库正式维护两条主链路：
+当前仓库正式维护四条主链路：
 
-- 多元时序：原生支持，标准输入形态为 `(L, N)`。
+- 多元时序：原生支持，标准输入形态为 `(L, N)`；单变量预测按 `(L, 1)` 作为 `mtsf` 的特例接入，不额外新增 `utsf` task，也不接受裸 `(L,)`。
 - 静态图时空序列：原生支持，标准输入形态为 `(L, N)` 加一个静态 graph。
-- 网格时序：如果预处理后能展平为 `(L, N)`，允许作为 `mtsf` baseline 使用。
+- 2D 规则网格时序：原生支持，标准输入形态为 `(L, C, H, W)`。
+- 3D 规则网格时序：原生支持，标准输入形态为 `(L, C, X, Y, Z)`。
+- 网格展平 baseline：如果预处理后能展平为 `(L, N)`，仍允许作为 `mtsf` baseline 使用。
 
 但要明确区分两件事：
 
 - “可以展平后复用 `mtsf` 方法”是 baseline 兼容策略。
 - “原生支持时空/网格结构”是另一件事，不应被上述兼容策略偷换。
 
-因此，本仓库当前把静态 graph 作为 `stf` 的一等输入，但不会因为二维网格 `(H, W)`、三维网格 `(X, Y, Z)` 或动态图而继续提前新增更多公开 task 抽象。只有当模型、数据接口或训练语义需要显式消费新的结构先验时，才再讨论是否新增独立 task。
+因此，本仓库当前把静态 graph 作为 `stf` 的一等输入，把规则 2D 网格作为 `grid2dtsf` 的一等输入，把规则 3D 网格作为 `grid3dtsf` 的一等输入，但不会把动态图、球面网格、非规则 mesh 或其他结构继续提前泛化成更多公开 task 抽象。只有当模型、数据接口或训练语义需要显式消费新的结构先验时，才再讨论是否新增独立 task。
 
 现阶段的默认原则是：
 
 - 接受展平后的 `mtsf-compatible` 输入。
 - 不把 graph 语义混入 `MTSFTask` 公共契约。
 - 静态 graph 通过 `STFTask` 和 graph-aware 模型显式消费。
-- 不把“展平兼容”表述成“已经原生支持网格时序或动态图”。
+- 2D 规则网格通过 `Grid2DTSFTask` 和 grid-aware 模型显式消费。
+- 3D 规则网格通过 `Grid3DTSFTask` 和 grid-aware 模型显式消费。
+- 不把“展平兼容”表述成“已经原生支持动态图、球面网格或 mesh”。
 - 新任务若确实新增，优先共享 workflow，不强行统一 task 语义。
 
 ## 2. 目录与职责规范
@@ -129,7 +133,7 @@ EasyTSFNext 的目标不是成为通用深度学习平台，而是成为一个�
 
 ### 3.1 新增模型的最低交付物
 
-新增一个标准 `mtsf` 或 `stf` 模型时，必须同时提交：
+新增一个标准 `mtsf`、`stf`、`grid2dtsf` 或 `grid3dtsf` 模型时，必须同时提交：
 
 1. `easytsf/model/<model_id>.py`
 2. 至少一个 `config/experiments/<model_id>/<dataset_id>.yaml`
@@ -144,9 +148,14 @@ EasyTSFNext 的目标不是成为通用深度学习平台，而是成为一个�
 
 - 每个模型模块统一暴露顶层 `Model` 类
 - 构造参数来自扁平配置键
-- `mtsf` 模型公开接口为 `forward(var_x, marker_x)`
+- `mtsf` 模型公开接口为 `forward(var_x, marker_x)`，输入批次默认是 `[B, L, N]`，其中单变量 case 也统一写成 `[B, L, 1]`
 - `stf` 模型公开接口为 `forward(var_x, marker_x, graph)`
-- 返回张量与标签形状兼容，默认为 `[B, pred_len, N]`
+- `grid2dtsf` 模型公开接口为 `forward(var_x, marker_x, grid_mask=None, coord=None)`
+- `grid3dtsf` 模型公开接口为 `forward(var_x, marker_x, grid_mask=None, coord=None)`
+- 返回张量与标签形状兼容：
+  - `mtsf` / `stf` 默认为 `[B, pred_len, N]`
+  - `grid2dtsf` 默认为 `[B, pred_len, C, H, W]`
+  - `grid3dtsf` 默认为 `[B, pred_len, C, X, Y, Z]`
 
 模型身份由文件名和 config id 承担，不再要求类名重复表达模型名。允许在文件内部保留论文名别名用于阅读，例如 `iTransformer = Model`，但主契约仍是顶层 `Model`。
 

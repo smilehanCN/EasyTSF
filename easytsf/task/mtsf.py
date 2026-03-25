@@ -10,7 +10,7 @@ import torch.optim.lr_scheduler as lrs
 class MTSFTask(L.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["graph", "grid_mask", "coord"])
         self.model = self._build_model()
         self.loss_function = nn.MSELoss()
         self.mae_loss_func = nn.L1Loss()
@@ -45,6 +45,10 @@ class MTSFTask(L.LightningModule):
             loss = 0.5 * self.mae_loss_func(prediction, label) + 0.5 * self.mse_loss_func(prediction, label)
         else:
             loss = self.loss_function(prediction, label)
+        aux_loss = self.model.get_aux_loss() if hasattr(self.model, "get_aux_loss") else None
+        if aux_loss is not None:
+            loss = loss + getattr(self.hparams, "aux_loss_weight", 1.0) * aux_loss
+            self.log("train/aux_loss", aux_loss, on_step=True, on_epoch=True, prog_bar=False, sync_dist=True)
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
@@ -62,11 +66,16 @@ class MTSFTask(L.LightningModule):
         self.log("test/mse", mse, on_step=False, on_epoch=True, sync_dist=True)
 
     def configure_optimizers(self):
+        if hasattr(self.model, "get_param_groups"):
+            param_groups = self.model.get_param_groups(default_lr=self.hparams.lr)
+        else:
+            param_groups = None
+        optimizer_params = param_groups if param_groups else self.parameters()
         if self.hparams.optimizer == "Adam":
-            optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+            optimizer = torch.optim.Adam(optimizer_params, lr=self.hparams.lr)
         elif self.hparams.optimizer == "AdamW":
             optimizer = torch.optim.AdamW(
-                self.parameters(),
+                optimizer_params,
                 lr=self.hparams.lr,
                 betas=(0.9, 0.95),
                 weight_decay=1e-5,

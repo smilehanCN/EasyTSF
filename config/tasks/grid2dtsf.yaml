@@ -1,0 +1,26 @@
+data:
+  hist_len: 12
+  pred_len: 12
+  norm_time_feature: false
+  time_feature_cls: []
+  precompute_window_index: false
+train:
+  max_epochs: 30
+  lr: 0.001
+  batch_size: 16
+  lr_scheduler: OneCycleLR
+  lrs_pct_start: 0.3
+  es_patience: 5
+  optimizer: Adam
+  gradient_clip_val: 1.0
+  gradient_clip_algorithm: norm
+  val_metric: val/loss
+  use_mix_loss: true
+runtime:
+  task_name: grid2dtsf
+  num_workers: 2
+  pin_memory: null
+  persistent_workers: null
+  prefetch_factor: 2
+  use_mmap: false
+  cache_npz_as_npy: null
