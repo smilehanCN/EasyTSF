@@ -30,7 +30,7 @@ EasyTSFNext 是一个面向科研 idea 快速验证的轻量时序预测仓库�
 - `config/studies/<model_id>/*.yaml`：批量评测声明，只枚举要跑的 case 和 seeds，路径使用全小写 id
 - `config/search_spaces/<model_id>/*.py`：Ray Tune 搜索空间，路径使用全小写 id
 - `easytsf/data/`：`DataInterface`、`GridDataInterface` 和数据缓存/滑窗逻辑
-- `easytsf/task/`：当前包含 `MTSFTask`、`STFTask`、`Grid2DTSFTask` 和 `Grid3DTSFTask`
+- `easytsf/task/`：当前包含 `MTSFTask`、`STFTask`、`Grid2DTSFTask`、`Grid3DTSFTask` 和一个实验性 `GridSTFTask` alias
 - `easytsf/model/`：模型实现
 - `easytsf/workflow/`：`experiment` 和 `study` 的流程实现
 
@@ -43,6 +43,14 @@ EasyTSFNext 是一个面向科研 idea 快速验证的轻量时序预测仓库�
 
 `study` 不抽象数据逻辑，不维护 `dataset -> 超参` 规则，只做编排、resume 和聚合。
 
+当前正式维护的模型矩阵由 preset 和 smoke 测试共同定义：
+
+- `mtsf`：`SimpleMLP`、`iTransformer`、`MOMENT`、`CoRA`
+- `stf`：`SimpleGraphMLP`、`STGCN`、`CoRAGraph`
+- `grid2dtsf/grid3dtsf`：`SimpleGridMLP`、`CoRAGrid`
+
+其余历史模型仍保留在仓库里，但按 legacy 对待，不纳入默认 preset / smoke 保障范围。
+
 ## 环境
 
 推荐直接使用现成 conda 环境：
@@ -50,6 +58,12 @@ EasyTSFNext 是一个面向科研 idea 快速验证的轻量时序预测仓库�
 ```shell
 conda activate easytsf
 pip install -r requirements.txt
+```
+
+如果需要标准包安装和测试入口，额外执行：
+
+```shell
+pip install -e .[dev]
 ```
 
 Foundation model 相关依赖保持可选安装。当前首个接入模型是 `MOMENT`，需要额外安装：
@@ -99,6 +113,13 @@ python evaluate.py -c itransformer/etth1 --set data.hist_len=96 --set data.pred_
 ```shell
 python evaluate.py -c itransformer/etth1 --ckpt_path last
 python evaluate.py -c itransformer/etth1 --ckpt_path save/xxx/checkpoints/epoch=9-step=660.ckpt
+```
+
+测试与配置审计：
+
+```shell
+python -m unittest tests.test_config_contracts tests.test_smoke_mlp_support tests.test_grid_support
+pytest
 ```
 
 批量 benchmark：
@@ -208,6 +229,8 @@ python train.py -c coragrid/grid3d_demo -d dataset -s save --seed 0
 - probabilistic outputs
 - future covariates
 - sphere / mesh / irregular grid
+
+`gridstf` 目前只保留为实验性 task alias，方便复用同一套 grid datamodule / task 封装做快速验证，不进入默认 benchmark 主链路。
 
 `CoRA` 相关模型配置键：
 

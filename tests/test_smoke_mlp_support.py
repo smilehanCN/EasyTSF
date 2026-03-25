@@ -212,6 +212,55 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
             loss = self._run_training_step_without_trainer(experiment.task, batch)
             self._assert_scalar_loss(loss)
 
+    def test_stf_path_requires_graph_side_input(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(16 * 4, dtype=np.float32).reshape(16, 4)
+            self._write_sequence_dataset(tmpdir, "graph_missing", variable)
+
+            conf = self._make_conf(
+                tmpdir,
+                dataset_name="graph_missing",
+                model_name="SimpleGraphMLP",
+                task_name="stf",
+                var_num=4,
+            )
+            with self.assertRaisesRegex(ValueError, "requires dataset side inputs"):
+                build_experiment(conf, training=False)
+
+    def test_stf_path_rejects_graph_node_count_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(16 * 4, dtype=np.float32).reshape(16, 4)
+            self._write_sequence_dataset(tmpdir, "graph_mismatch", variable)
+            self._write_graph(tmpdir, "graph.npy", np.eye(3, dtype=np.float32))
+
+            conf = self._make_conf(
+                tmpdir,
+                dataset_name="graph_mismatch",
+                model_name="SimpleGraphMLP",
+                task_name="stf",
+                var_num=4,
+                graph_path="graph.npy",
+            )
+            with self.assertRaisesRegex(ValueError, "graph node count"):
+                build_experiment(conf, training=False)
+
+    def test_model_contract_rejects_unsupported_task_combination(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(16 * 4, dtype=np.float32).reshape(16, 4)
+            self._write_sequence_dataset(tmpdir, "unsupported_combo", variable)
+            self._write_graph(tmpdir, "graph.npy", np.eye(4, dtype=np.float32))
+
+            conf = self._make_conf(
+                tmpdir,
+                dataset_name="unsupported_combo",
+                model_name="SimpleMLP",
+                task_name="stf",
+                var_num=4,
+                graph_path="graph.npy",
+            )
+            with self.assertRaisesRegex(ValueError, "does not support task 'stf'"):
+                build_experiment(conf, training=False)
+
     def test_simple_grid_mlp_supports_grid2d_forward_and_training_step(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             variable = np.arange(16 * 2 * 3 * 4, dtype=np.float32).reshape(16, 2, 3, 4)

@@ -7,7 +7,7 @@ import numpy as np
 import torch
 
 from easytsf.data import GridDataInterface
-from easytsf.task import Grid2DTSFTask, Grid3DTSFTask
+from easytsf.task import Grid2DTSFTask, Grid3DTSFTask, GridSTFTask
 from easytsf.workflow.experiment import build_experiment, finalize_runtime_conf
 
 
@@ -177,6 +177,26 @@ class GridSupportTestCase(unittest.TestCase):
             self.assertEqual(tuple(experiment.task.grid_mask.shape), (2, 3, 4))
             self.assertEqual(tuple(experiment.task.coord.shape), (3, 2, 3, 4))
             self.assertEqual(tuple(prediction.shape), (2, 2, 2, 2, 3, 4))
+            self.assertEqual(tuple(prediction.shape), tuple(label.shape))
+
+    def test_build_experiment_dispatches_gridstf_task(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(12 * 2 * 3 * 4, dtype=np.float32).reshape(12, 2, 3, 4)
+            grid_mask = np.ones((3, 4), dtype=np.float32)
+            coord = np.stack(np.meshgrid(np.arange(3), np.arange(4), indexing="ij"), axis=0).astype(np.float32)
+            self._write_grid_dataset(tmpdir, "gridstf_case", variable, grid_mask=grid_mask, coord=coord)
+            conf = _make_common_conf(tmpdir, "gridstf_case", "gridstf")
+
+            def build_dummy_model(task):
+                return DummyGridModel(pred_len=task.hparams.pred_len)
+
+            with mock.patch.object(GridSTFTask, "_build_model", build_dummy_model):
+                experiment = build_experiment(conf, training=False)
+                batch = next(iter(experiment.datamodule.train_dataloader()))
+                prediction, label = experiment.task.forward(batch, 0)
+
+            self.assertIsInstance(experiment.task, GridSTFTask)
+            self.assertEqual(tuple(prediction.shape), (2, 2, 2, 3, 4))
             self.assertEqual(tuple(prediction.shape), tuple(label.shape))
 
     def test_build_experiment_rejects_task_dim_mismatch(self):

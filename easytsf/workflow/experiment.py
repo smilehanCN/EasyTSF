@@ -4,7 +4,7 @@ import importlib.util
 import json
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -333,6 +333,8 @@ def load_saved_metrics(conf):
 
 
 def _serialize_value(value):
+    if is_dataclass(value):
+        return {key: _serialize_value(item) for key, item in asdict(value).items()}
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, tuple):
@@ -431,53 +433,25 @@ def build_logger(conf):
 
 
 def build_experiment(conf, training=True):
-    from easytsf.data import DataInterface, GridDataInterface
-    from easytsf.task import Grid2DTSFTask, Grid3DTSFTask, GridSTFTask, MTSFTask, STFTask
+    from easytsf.task import get_task_registry_entry
 
     L.seed_everything(conf["seed"])
     ensure_experiment_dir(conf)
     finalized_conf = dict(conf)
     task_name = finalized_conf.get("task_name", DEFAULT_TASK_NAME)
-    is_grid_task = task_name in {"grid2dtsf", "grid3dtsf", "gridstf"}
-    if is_grid_task:
-        datamodule = GridDataInterface(**conf)
-    else:
-        datamodule = DataInterface(**conf)
+    task_entry = get_task_registry_entry(task_name)
+    datamodule = task_entry.datamodule_cls(**conf)
+    task_entry.validate_data_spec(finalized_conf["dataset_name"], datamodule.data_spec)
 
-    if is_grid_task:
-        finalized_conf["channel_num"] = datamodule.channel_num
-        finalized_conf["spatial_shape"] = list(datamodule.spatial_shape)
-        finalized_conf["spatial_ndim"] = int(datamodule.spatial_ndim)
+    finalized_conf["data_spec"] = datamodule.data_spec
+    if datamodule.data_spec.channel_num is not None:
+        finalized_conf["channel_num"] = int(datamodule.data_spec.channel_num)
+    if datamodule.data_spec.spatial_shape:
+        finalized_conf["spatial_shape"] = list(datamodule.data_spec.spatial_shape)
+    if datamodule.data_spec.spatial_ndim:
+        finalized_conf["spatial_ndim"] = int(datamodule.data_spec.spatial_ndim)
     finalized_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader()))
-
-    if task_name == "mtsf":
-        task = MTSFTask(**finalized_conf)
-    elif task_name == "stf":
-        if datamodule.graph is None:
-            raise ValueError("stf experiment requires data.graph_path for dataset '{}'".format(finalized_conf["dataset_name"]))
-        task = STFTask(graph=datamodule.graph, **finalized_conf)
-    elif task_name == "grid2dtsf":
-        if datamodule.spatial_ndim != 2:
-            raise ValueError(
-                "grid2dtsf experiment requires [L, C, H, W] data but dataset '{}' has spatial_ndim={}".format(
-                    finalized_conf["dataset_name"],
-                    datamodule.spatial_ndim,
-                )
-            )
-        task = Grid2DTSFTask(grid_mask=datamodule.grid_mask, coord=datamodule.coord, **finalized_conf)
-    elif task_name == "grid3dtsf":
-        if datamodule.spatial_ndim != 3:
-            raise ValueError(
-                "grid3dtsf experiment requires [L, C, X, Y, Z] data but dataset '{}' has spatial_ndim={}".format(
-                    finalized_conf["dataset_name"],
-                    datamodule.spatial_ndim,
-                )
-            )
-        task = Grid3DTSFTask(grid_mask=datamodule.grid_mask, coord=datamodule.coord, **finalized_conf)
-    elif task_name == "gridstf":
-        task = GridSTFTask(grid_mask=datamodule.grid_mask, coord=datamodule.coord, **finalized_conf)
-    else:
-        raise ValueError("unsupported task_name: {}".format(task_name))
+    task = task_entry.task_cls(**task_entry.build_task_kwargs(datamodule), **finalized_conf)
     trainer = L.Trainer(
         accelerator=finalized_conf["accelerator"],
         devices=finalized_conf["devices"],

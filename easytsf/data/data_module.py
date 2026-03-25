@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader, Dataset
 
+from .spec import DataSpec
+
 
 DATA_ARRAY_KEY = "scaled_variable"
 TIMESTAMP_ARRAY_KEY = "timestamp"
@@ -171,6 +173,7 @@ class DataInterface(pl.LightningDataModule):
 
         self.variable, self.time_feature = self._read_data()
         self.graph = self._read_graph()
+        self.data_spec = self._build_data_spec()
         self._train_loader = None
         self._val_loader = None
         self._test_loader = None
@@ -202,6 +205,15 @@ class DataInterface(pl.LightningDataModule):
                     tuple(variable.shape),
                 )
             )
+        expected_var_num = self.config.get("var_num")
+        if expected_var_num is not None and int(expected_var_num) != int(variable.shape[1]):
+            raise ValueError(
+                "dataset '{}' width {} does not match configured var_num {}".format(
+                    self.data_path,
+                    int(variable.shape[1]),
+                    int(expected_var_num),
+                )
+            )
         if len(raw_timestamp) != len(variable):
             raise ValueError(
                 "timestamp length {} does not match data length {} for {}".format(
@@ -221,7 +233,31 @@ class DataInterface(pl.LightningDataModule):
     def _read_graph(self):
         if self.graph_path is None:
             return None
-        return load_graph_array(self.graph_path)
+        graph = load_graph_array(self.graph_path)
+        if graph.ndim != 2 or graph.shape[0] != graph.shape[1]:
+            raise ValueError("graph adjacency must be a square matrix: {}".format(self.graph_path))
+        if graph.shape[0] != self.variable.shape[1]:
+            raise ValueError(
+                "graph node count {} does not match dataset width {} for {}".format(
+                    int(graph.shape[0]),
+                    int(self.variable.shape[1]),
+                    self.data_path,
+                )
+            )
+        return graph
+
+    def _build_data_spec(self):
+        time_feature_dim = int(self.time_feature.shape[-1]) if self.time_feature.ndim == 2 else 0
+        return DataSpec(
+            layout_kind="sequence",
+            spatial_ndim=0,
+            spatial_shape=(),
+            channel_num=None,
+            has_graph=self.graph is not None,
+            has_grid_mask=False,
+            has_coord=False,
+            time_feature_dim=time_feature_dim,
+        )
 
     def _create_loader(self, dataset, batch_size, shuffle, drop_last):
         loader_args = dict(

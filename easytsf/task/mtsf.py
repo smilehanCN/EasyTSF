@@ -1,16 +1,20 @@
 import importlib
 import inspect
+import warnings
 
 import lightning.pytorch as L
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lrs
 
+from easytsf.model import get_model_contract
+
 
 class MTSFTask(L.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
-        self.save_hyperparameters(ignore=["graph", "grid_mask", "coord"])
+        self.data_spec = kwargs.get("data_spec")
+        self.save_hyperparameters(ignore=["graph", "grid_mask", "coord", "data_spec"])
         self.model = self._build_model()
         self.loss_function = nn.MSELoss()
         self.mae_loss_func = nn.L1Loss()
@@ -22,7 +26,18 @@ class MTSFTask(L.LightningModule):
 
     def _build_model(self):
         model_name = self.hparams.model_name
-        module_name = model_name.lower()
+        contract = get_model_contract(model_name)
+        contract.validate(getattr(self.hparams, "task_name", "mtsf"), self.data_spec)
+        if contract.is_legacy:
+            warnings.warn(
+                "model '{}' is marked as legacy and is outside the maintained preset/smoke matrix. {}".format(
+                    model_name,
+                    contract.note,
+                ),
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        module_name = contract.module_name
         module = importlib.import_module(".{}".format(module_name), package="easytsf.model")
         if not hasattr(module, "Model"):
             raise ValueError("easytsf.model.{} must define a top-level Model class".format(module_name))

@@ -8,6 +8,7 @@ from .data_module import (
     _ensure_npy_cache,
     build_time_feature,
 )
+from .spec import DataSpec
 
 
 GRID_MASK_ARRAY_KEY = "grid_mask"
@@ -126,3 +127,16 @@ class GridDataInterface(DataInterface):
 
     def _read_graph(self):
         return None
+
+    def _build_data_spec(self):
+        time_feature_dim = int(self.time_feature.shape[-1]) if self.time_feature.ndim == 2 else 0
+        return DataSpec(
+            layout_kind="grid",
+            spatial_ndim=int(self.spatial_ndim),
+            spatial_shape=tuple(self.spatial_shape),
+            channel_num=int(self.channel_num),
+            has_graph=False,
+            has_grid_mask=self.grid_mask is not None,
+            has_coord=self.coord is not None,
+            time_feature_dim=time_feature_dim,
+        )
