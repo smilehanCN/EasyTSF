@@ -108,7 +108,7 @@ PEMS03:
     var_num: 358
     freq: 5
     data_split: [15724, 5242, 5242]
-    graph_path: PEMS03_graph.npy
+    graph_path: graph.npy
   runtime:
     use_mmap: true
     cache_npz_as_npy: true
@@ -119,7 +119,7 @@ PEMS04:
     var_num: 307
     freq: 5
     data_split: [10196, 3398, 3398]
-    graph_path: PEMS04_graph.npy
+    graph_path: graph.npy
   runtime:
     use_mmap: true
     cache_npz_as_npy: true
@@ -130,7 +130,7 @@ PEMS07:
     var_num: 883
     freq: 5
     data_split: [16934, 5645, 5645]
-    graph_path: PEMS07_graph.npy
+    graph_path: graph.npy
   runtime:
     use_mmap: true
     cache_npz_as_npy: true
@@ -141,7 +141,7 @@ PEMS08:
     var_num: 170
     freq: 5
     data_split: [10714, 3571, 3571]
-    graph_path: PEMS08_graph.npy
+    graph_path: graph.npy
   runtime:
     use_mmap: true
     cache_npz_as_npy: true
@@ -168,3 +168,11 @@ Grid3DDemo:
     dataset_name: Grid3DDemo
     freq: 60
     data_split: [256, 64, 64]
+WindField3DDemo:
+  data:
+    dataset_name: WindField3DDemo
+    freq: 1
+    data_split: [10, 3, 3]
+  runtime:
+    use_mmap: true
+    cache_npz_as_npy: true

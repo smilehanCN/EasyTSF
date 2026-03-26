@@ -97,6 +97,7 @@ python train.py -c simplemlp/etth1 -d dataset -s save --seed 0
 python train.py -c simplegraphmlp/pems03 -d dataset -s save --seed 0
 python train.py -c simplegridmlp/grid2d_demo -d dataset -s save --seed 0
 python train.py -c simplegridmlp/grid3d_demo -d dataset -s save --seed 0
+python train.py -c simplegridmlp/windfield3d_demo -d dataset -s save --seed 0
 ```
 
 其中单变量实验 `simplemlp/pseudo` 依赖的数据格式是 `scaled_variable.shape == [L, 1]`；如果数据文件里存成裸 `[L]`，当前仓库会直接报错并要求改成 `[L, 1]`。
@@ -127,6 +128,7 @@ pytest
 ```shell
 python study.py -s itransformer/core
 python study.py -s stgcn/core
+python study.py -s simplegridmlp/core
 python study.py -s itransformer/core --dry_run 1
 python study.py -s itransformer/core --resume 1
 ```
@@ -401,26 +403,26 @@ YAML 只使用四个顶层 section：
 
 ## 数据约定
 
-数据文件位置默认是 `dataset/<dataset_name>.npz`，当前主链路实际依赖的核心 key 是：
+数据目录位置默认是 `dataset/<dataset_name>/`，主数据文件固定为 `dataset/<dataset_name>/data.npz`，当前主链路实际依赖的核心 key 是：
 
 - `scaled_variable`
 - `timestamp`
 
-对于 `stf` 数据集，静态 graph 不放在主 `.npz` 中，而是通过 dataset catalog 里的可选 `data.graph_path` 指向一个独立文件。该路径相对 `data_root` 解析，graph 默认是 dense float32 矩阵，形状为 `[N, N]`。
+对于 `stf` 数据集，静态 graph 通过 dataset catalog 里的可选 `data.graph_path` 指向目录内 side file，默认约定为 `dataset/<dataset_name>/graph.npy`。相对路径统一相对数据集目录解析，graph 默认是 dense float32 矩阵，形状为 `[N, N]`。
 
 对于原生 grid 数据集，`scaled_variable` 的形状约定为：
 
 - 2D：`[L, C, H, W]`
 - 3D：`[L, C, X, Y, Z]`
 
-grid 主 `.npz` 还可以包含两个可选 side input：
+grid 数据集的可选 side input 固定放在目录 side file 中：
 
-- `grid_mask`：纯空间 mask，2D 为 `[H, W]`，3D 为 `[X, Y, Z]`
-- `coord`：坐标通道在前，2D 为 `[2, H, W]`，3D 为 `[3, X, Y, Z]`
+- `grid_mask.npy`：纯空间 mask，2D 为 `[H, W]`，3D 为 `[X, Y, Z]`
+- `coord.npy`：坐标通道在前，2D 为 `[2, H, W]`，3D 为 `[3, X, Y, Z]`
 
-额外字段会被忽略。`DataInterface` / `GridDataInterface` 负责：
+旧版 flat `dataset/<dataset_name>.npz` 已不再兼容。额外文件会被忽略。`DataInterface` / `GridDataInterface` 负责：
 
-- 读取 `.npz`
+- 读取 `data.npz`
 - 按需读取静态 graph
 - 按需读取 `grid_mask` 和 `coord`
 - 生成 `tod`、`dow`、`dom`、`doy` 等时间特征

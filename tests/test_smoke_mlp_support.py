@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from easytsf.workflow.experiment import build_experiment, finalize_runtime_conf, load_config, run_training
+from easytsf.workflow.study import run_study
 
 
 def _make_timestamp(length, unit="h"):
@@ -14,8 +15,13 @@ def _make_timestamp(length, unit="h"):
 
 
 class SmokeMLPSupportTestCase(unittest.TestCase):
+    def _make_dataset_dir(self, root, dataset_name):
+        dataset_dir = Path(root) / dataset_name
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        return dataset_dir
+
     def _write_sequence_dataset(self, root, dataset_name, variable):
-        dataset_path = Path(root) / "{}.npz".format(dataset_name)
+        dataset_path = self._make_dataset_dir(root, dataset_name) / "data.npz"
         np.savez(
             dataset_path,
             scaled_variable=variable.astype(np.float32),
@@ -24,20 +30,30 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
         return dataset_path
 
     def _write_grid_dataset(self, root, dataset_name, variable, grid_mask=None, coord=None):
-        dataset_path = Path(root) / "{}.npz".format(dataset_name)
-        payload = {
-            "scaled_variable": variable.astype(np.float32),
-            "timestamp": _make_timestamp(variable.shape[0]),
-        }
+        dataset_dir = self._make_dataset_dir(root, dataset_name)
+        dataset_path = dataset_dir / "data.npz"
+        np.savez(
+            dataset_path,
+            scaled_variable=variable.astype(np.float32),
+            timestamp=_make_timestamp(variable.shape[0]),
+        )
         if grid_mask is not None:
-            payload["grid_mask"] = grid_mask.astype(np.float32)
+            np.save(dataset_dir / "grid_mask.npy", grid_mask.astype(np.float32))
         if coord is not None:
-            payload["coord"] = coord.astype(np.float32)
-        np.savez(dataset_path, **payload)
+            np.save(dataset_dir / "coord.npy", coord.astype(np.float32))
         return dataset_path
 
-    def _write_graph(self, root, graph_name, graph):
-        graph_path = Path(root) / graph_name
+    def _write_legacy_flat_dataset(self, root, dataset_name, variable):
+        dataset_path = Path(root) / "{}.npz".format(dataset_name)
+        np.savez(
+            dataset_path,
+            scaled_variable=variable.astype(np.float32),
+            timestamp=_make_timestamp(variable.shape[0]),
+        )
+        return dataset_path
+
+    def _write_graph(self, root, dataset_name, graph, graph_name="graph.npy"):
+        graph_path = self._make_dataset_dir(root, dataset_name) / graph_name
         np.save(graph_path, graph.astype(np.float32))
         return graph_path
 
@@ -125,7 +141,7 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             variable = np.arange(16, dtype=np.float32)
             self._write_sequence_dataset(tmpdir, "raw_univariate_graph", variable)
-            self._write_graph(tmpdir, "graph.npy", np.eye(1, dtype=np.float32))
+            self._write_graph(tmpdir, "raw_univariate_graph", np.eye(1, dtype=np.float32))
 
             conf = self._make_conf(
                 tmpdir,
@@ -136,6 +152,21 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
                 graph_path="graph.npy",
             )
             with self.assertRaisesRegex(ValueError, r"\[L, 1\]"):
+                build_experiment(conf, training=False)
+
+    def test_mtsf_path_rejects_legacy_flat_layout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(16 * 2, dtype=np.float32).reshape(16, 2)
+            self._write_legacy_flat_dataset(tmpdir, "legacy_flat", variable)
+
+            conf = self._make_conf(
+                tmpdir,
+                dataset_name="legacy_flat",
+                model_name="SimpleMLP",
+                task_name="mtsf",
+                var_num=2,
+            )
+            with self.assertRaisesRegex(FileNotFoundError, "legacy flat dataset layout is no longer supported"):
                 build_experiment(conf, training=False)
 
     def test_simple_mlp_supports_univariate_forward_and_training_step(self):
@@ -193,7 +224,7 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
                 dtype=np.float32,
             )
             self._write_sequence_dataset(tmpdir, "graph_case", variable)
-            self._write_graph(tmpdir, "graph.npy", graph)
+            self._write_graph(tmpdir, "graph_case", graph)
 
             conf = self._make_conf(
                 tmpdir,
@@ -231,7 +262,7 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             variable = np.arange(16 * 4, dtype=np.float32).reshape(16, 4)
             self._write_sequence_dataset(tmpdir, "graph_mismatch", variable)
-            self._write_graph(tmpdir, "graph.npy", np.eye(3, dtype=np.float32))
+            self._write_graph(tmpdir, "graph_mismatch", np.eye(3, dtype=np.float32))
 
             conf = self._make_conf(
                 tmpdir,
@@ -248,7 +279,7 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             variable = np.arange(16 * 4, dtype=np.float32).reshape(16, 4)
             self._write_sequence_dataset(tmpdir, "unsupported_combo", variable)
-            self._write_graph(tmpdir, "graph.npy", np.eye(4, dtype=np.float32))
+            self._write_graph(tmpdir, "unsupported_combo", np.eye(4, dtype=np.float32))
 
             conf = self._make_conf(
                 tmpdir,
@@ -322,6 +353,7 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
             "simplegraphmlp/pems03": ("SimpleGraphMLP", "stf", "PEMS03"),
             "simplegridmlp/grid2d_demo": ("SimpleGridMLP", "grid2dtsf", "Grid2DDemo"),
             "simplegridmlp/grid3d_demo": ("SimpleGridMLP", "grid3dtsf", "Grid3DDemo"),
+            "simplegridmlp/windfield3d_demo": ("SimpleGridMLP", "grid3dtsf", "WindField3DDemo"),
         }
 
         for config_ref, (model_name, task_name, dataset_name) in expected.items():
@@ -367,7 +399,7 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
             variable = np.arange(16 * 4, dtype=np.float32).reshape(16, 4)
             graph = np.eye(4, dtype=np.float32)
             self._write_sequence_dataset(tmpdir, "train_graph", variable)
-            self._write_graph(tmpdir, "graph.npy", graph)
+            self._write_graph(tmpdir, "train_graph", graph)
             conf = self._make_conf(
                 tmpdir,
                 dataset_name="train_graph",
@@ -380,6 +412,25 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
             metrics = run_training(conf)
             self.assertEqual(metrics["status"], "success")
             self.assertTrue(Path(metrics["ckpt_path"]).exists())
+
+    def test_simplegridmlp_study_dry_run_expands_cases(self):
+        result = run_study(
+            "simplegridmlp/core",
+            runtime_overrides={
+                "data_root": "dataset",
+                "save_root": "save",
+                "accelerator": "cpu",
+                "devices": 1,
+                "use_wandb": 0,
+            },
+            dry_run=True,
+        )
+
+        self.assertEqual(result["study_name"], "simplegridmlp_core")
+        self.assertEqual(result["run_count"], 2)
+        self.assertEqual(result["rows"], [])
+        self.assertIsNone(result["runs_path"])
+        self.assertIsNone(result["summary_path"])
 
     def test_smoke_training_runs_simple_grid2d_mlp(self):
         with tempfile.TemporaryDirectory() as tmpdir:

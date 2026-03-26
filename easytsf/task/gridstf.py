@@ -9,9 +9,9 @@ class _BaseGridTSFTask(MTSFTask):
     def __init__(self, grid_mask=None, coord=None, **kwargs):
         super().__init__(**kwargs)
         if grid_mask is not None:
-            grid_mask = torch.as_tensor(grid_mask, dtype=torch.float32)
+            grid_mask = torch.tensor(grid_mask, dtype=torch.float32)
         if coord is not None:
-            coord = torch.as_tensor(coord, dtype=torch.float32)
+            coord = torch.tensor(coord, dtype=torch.float32)
         self.register_buffer("grid_mask", grid_mask, persistent=False)
         self.register_buffer("coord", coord, persistent=False)
 

@@ -1,63 +1,36 @@
 import numpy as np
 
 from .data_module import (
-    DATA_ARRAY_KEY,
-    TIMESTAMP_ARRAY_KEY,
     DataInterface,
-    _cache_path_for_key,
-    _ensure_npy_cache,
     build_time_feature,
+    load_dataset_arrays,
 )
 from .spec import DataSpec
 
 
-GRID_MASK_ARRAY_KEY = "grid_mask"
-COORD_ARRAY_KEY = "coord"
-LEGACY_SPATIAL_MASK_ARRAY_KEY = "spatial_mask"
+GRID_MASK_FILE_NAME = "grid_mask.npy"
+COORD_FILE_NAME = "coord.npy"
 
 
-def load_grid_dataset_arrays(npz_path, use_mmap=False, cache_npz_as_npy=None):
-    if cache_npz_as_npy is None:
-        cache_npz_as_npy = use_mmap
+def _load_optional_side_array(path, use_mmap=False):
+    if path is None or not path.exists():
+        return None
 
-    cache_keys = [DATA_ARRAY_KEY, TIMESTAMP_ARRAY_KEY]
-    with np.load(npz_path) as data:
-        has_grid_mask = GRID_MASK_ARRAY_KEY in data
-        has_legacy_mask = LEGACY_SPATIAL_MASK_ARRAY_KEY in data
-        has_coord = COORD_ARRAY_KEY in data
+    load_kwargs = {"allow_pickle": False}
+    if use_mmap:
+        load_kwargs["mmap_mode"] = "r"
+    array = np.load(path, **load_kwargs)
+    return array.astype(np.float32, copy=False)
 
-    mask_cache_key = None
-    if has_grid_mask:
-        mask_cache_key = GRID_MASK_ARRAY_KEY
-    elif has_legacy_mask:
-        mask_cache_key = LEGACY_SPATIAL_MASK_ARRAY_KEY
 
-    if mask_cache_key is not None:
-        cache_keys.append(mask_cache_key)
-    if has_coord:
-        cache_keys.append(COORD_ARRAY_KEY)
-
-    if use_mmap and cache_npz_as_npy and _ensure_npy_cache(npz_path, cache_keys):
-        variable = np.load(_cache_path_for_key(npz_path, DATA_ARRAY_KEY), mmap_mode="r")
-        timestamp = np.load(_cache_path_for_key(npz_path, TIMESTAMP_ARRAY_KEY), mmap_mode="r")
-        grid_mask = None
-        coord = None
-        if mask_cache_key is not None:
-            grid_mask = np.load(_cache_path_for_key(npz_path, mask_cache_key), mmap_mode="r")
-        if has_coord:
-            coord = np.load(_cache_path_for_key(npz_path, COORD_ARRAY_KEY), mmap_mode="r")
-        return variable, timestamp, grid_mask, coord
-
-    with np.load(npz_path) as data:
-        variable = data[DATA_ARRAY_KEY].astype(np.float32, copy=False)
-        timestamp = data[TIMESTAMP_ARRAY_KEY]
-        if has_grid_mask:
-            grid_mask = data[GRID_MASK_ARRAY_KEY].astype(np.float32, copy=False)
-        elif has_legacy_mask:
-            grid_mask = data[LEGACY_SPATIAL_MASK_ARRAY_KEY].astype(np.float32, copy=False)
-        else:
-            grid_mask = None
-        coord = data[COORD_ARRAY_KEY].astype(np.float32, copy=False) if has_coord else None
+def load_grid_dataset_arrays(npz_path, grid_mask_path=None, coord_path=None, use_mmap=False, cache_npz_as_npy=None):
+    variable, timestamp = load_dataset_arrays(
+        npz_path,
+        use_mmap=use_mmap,
+        cache_npz_as_npy=cache_npz_as_npy,
+    )
+    grid_mask = _load_optional_side_array(grid_mask_path, use_mmap=use_mmap)
+    coord = _load_optional_side_array(coord_path, use_mmap=use_mmap)
     return variable, timestamp, grid_mask, coord
 
 
@@ -73,6 +46,8 @@ class GridDataInterface(DataInterface):
     def _read_data(self):
         variable, raw_timestamp, grid_mask, coord = load_grid_dataset_arrays(
             self.data_path,
+            grid_mask_path=self.dataset_dir / GRID_MASK_FILE_NAME,
+            coord_path=self.dataset_dir / COORD_FILE_NAME,
             use_mmap=self.use_mmap,
             cache_npz_as_npy=self.cache_npz_as_npy,
         )

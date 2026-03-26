@@ -1,0 +1,5 @@
+name: simplegridmlp_core
+seeds: [0]
+cases:
+  - experiment: simplegridmlp/grid3d_demo
+  - experiment: simplegridmlp/windfield3d_demo

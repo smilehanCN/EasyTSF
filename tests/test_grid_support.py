@@ -66,17 +66,32 @@ def _make_common_conf(tmpdir, dataset_name, task_name):
 
 
 class GridSupportTestCase(unittest.TestCase):
+    def _make_dataset_dir(self, root, dataset_name):
+        dataset_dir = Path(root) / dataset_name
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        return dataset_dir
+
     def _write_grid_dataset(self, root, dataset_name, variable, grid_mask=None, coord=None):
-        dataset_path = Path(root) / "{}.npz".format(dataset_name)
-        payload = {
-            "scaled_variable": variable.astype(np.float32),
-            "timestamp": _make_timestamp(variable.shape[0]),
-        }
+        dataset_dir = self._make_dataset_dir(root, dataset_name)
+        dataset_path = dataset_dir / "data.npz"
+        np.savez(
+            dataset_path,
+            scaled_variable=variable.astype(np.float32),
+            timestamp=_make_timestamp(variable.shape[0]),
+        )
         if grid_mask is not None:
-            payload["grid_mask"] = grid_mask.astype(np.float32)
+            np.save(dataset_dir / "grid_mask.npy", grid_mask.astype(np.float32))
         if coord is not None:
-            payload["coord"] = coord.astype(np.float32)
-        np.savez(dataset_path, **payload)
+            np.save(dataset_dir / "coord.npy", coord.astype(np.float32))
+        return dataset_path
+
+    def _write_legacy_flat_grid_dataset(self, root, dataset_name, variable):
+        dataset_path = Path(root) / "{}.npz".format(dataset_name)
+        np.savez(
+            dataset_path,
+            scaled_variable=variable.astype(np.float32),
+            timestamp=_make_timestamp(variable.shape[0]),
+        )
         return dataset_path
 
     def _build_grid_datamodule(self, root, dataset_name):
@@ -127,6 +142,56 @@ class GridSupportTestCase(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "coord shape"):
                 self._build_grid_datamodule(tmpdir, "grid3d_bad_coord")
+
+    def test_grid_data_interface_rejects_legacy_flat_layout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(12 * 2 * 3 * 4, dtype=np.float32).reshape(12, 2, 3, 4)
+            self._write_legacy_flat_grid_dataset(tmpdir, "legacy_grid", variable)
+
+            with self.assertRaisesRegex(FileNotFoundError, "legacy flat dataset layout is no longer supported"):
+                self._build_grid_datamodule(tmpdir, "legacy_grid")
+
+    def test_windfield3d_directory_contract_loads_expected_shapes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_dir = self._make_dataset_dir(tmpdir, "WindField3DDemo")
+            variable = np.zeros((16, 3, 64, 64, 64), dtype=np.float32)
+            timestamp = _make_timestamp(variable.shape[0], unit="m")
+            axes = [
+                np.linspace(-320.0, 310.0, 64, dtype=np.float32),
+                np.linspace(-320.0, 310.0, 64, dtype=np.float32),
+                np.linspace(750.0, 1380.0, 64, dtype=np.float32),
+            ]
+            coord = np.stack(np.meshgrid(*axes, indexing="ij"), axis=0).astype(np.float32)
+            np.savez(dataset_dir / "data.npz", scaled_variable=variable, timestamp=timestamp)
+            np.save(dataset_dir / "coord.npy", coord)
+
+            datamodule = GridDataInterface(
+                num_workers=0,
+                batch_size=1,
+                hist_len=2,
+                pred_len=2,
+                norm_time_feature=False,
+                data_split=[10, 3, 3],
+                time_feature_cls=[],
+                pin_memory=False,
+                persistent_workers=False,
+                prefetch_factor=2,
+                use_mmap=False,
+                cache_npz_as_npy=False,
+                precompute_window_index=False,
+                data_root=tmpdir,
+                dataset_name="WindField3DDemo",
+                freq=1,
+            )
+            batch = next(iter(datamodule.train_dataloader()))
+
+            self.assertEqual(datamodule.channel_num, 3)
+            self.assertEqual(datamodule.spatial_shape, (64, 64, 64))
+            self.assertEqual(datamodule.spatial_ndim, 3)
+            self.assertEqual(tuple(datamodule.coord.shape), (3, 64, 64, 64))
+            self.assertIsNone(datamodule.grid_mask)
+            self.assertEqual(tuple(batch[0].shape), (1, 2, 3, 64, 64, 64))
+            self.assertEqual(tuple(batch[2].shape), (1, 2, 3, 64, 64, 64))
 
     def test_build_experiment_dispatches_grid2d_task(self):
         with tempfile.TemporaryDirectory() as tmpdir:

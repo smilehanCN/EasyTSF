@@ -11,6 +11,44 @@ from .spec import DataSpec
 
 DATA_ARRAY_KEY = "scaled_variable"
 TIMESTAMP_ARRAY_KEY = "timestamp"
+DATA_FILE_NAME = "data.npz"
+
+
+def resolve_dataset_dir(data_root, dataset_name):
+    dataset_root = Path(data_root).expanduser()
+    dataset_dir = dataset_root / str(dataset_name)
+    data_path = dataset_dir / DATA_FILE_NAME
+    legacy_path = dataset_root / "{}.npz".format(dataset_name)
+
+    if dataset_dir.exists():
+        if not dataset_dir.is_dir():
+            raise NotADirectoryError("dataset '{}' path is not a directory: {}".format(dataset_name, dataset_dir))
+        if not data_path.exists():
+            raise FileNotFoundError(
+                "dataset '{}' must include '{}' under directory '{}'".format(
+                    dataset_name,
+                    DATA_FILE_NAME,
+                    dataset_dir,
+                )
+            )
+        return dataset_dir, data_path
+
+    if legacy_path.exists():
+        raise FileNotFoundError(
+            "legacy flat dataset layout is no longer supported for '{}': found {}; expected directory layout at {}".format(
+                dataset_name,
+                legacy_path,
+                data_path,
+            )
+        )
+
+    raise FileNotFoundError(
+        "dataset '{}' must be stored under directory '{}' with required file '{}'".format(
+            dataset_name,
+            dataset_dir,
+            data_path,
+        )
+    )
 
 
 def _cache_dir_for_npz(npz_path):
@@ -119,6 +157,12 @@ def build_time_feature(raw_timestamp, time_feature_cls, norm_time_feature, freq)
     return time_feature
 
 
+def _ensure_writable_array(array):
+    if hasattr(array, "flags") and not array.flags.writeable:
+        return np.array(array, copy=True)
+    return array
+
+
 class GeneralTSFDataset(Dataset):
     def __init__(self, hist_len, pred_len, variable, time_feature, precompute_window_index=False):
         self.hist_len = hist_len
@@ -137,10 +181,10 @@ class GeneralTSFDataset(Dataset):
         hist_end = hist_start + self.hist_len
         pred_end = hist_end + self.pred_len
 
-        var_x = self.variable[hist_start:hist_end, ...]
-        tf_x = self.time_feature[hist_start:hist_end, ...]
-        var_y = self.variable[hist_end:pred_end, ...]
-        tf_y = self.time_feature[hist_end:pred_end, ...]
+        var_x = _ensure_writable_array(self.variable[hist_start:hist_end, ...])
+        tf_x = _ensure_writable_array(self.time_feature[hist_start:hist_end, ...])
+        var_y = _ensure_writable_array(self.variable[hist_end:pred_end, ...])
+        tf_y = _ensure_writable_array(self.time_feature[hist_end:pred_end, ...])
         return var_x, tf_x, var_y, tf_y
 
     def __len__(self):
@@ -167,8 +211,8 @@ class DataInterface(pl.LightningDataModule):
         self.use_mmap = kwargs.get("use_mmap", False)
         self.cache_npz_as_npy = kwargs.get("cache_npz_as_npy")
         self.precompute_window_index = kwargs.get("precompute_window_index", False)
-        self.data_path = Path(kwargs["data_root"]) / "{}.npz".format(kwargs["dataset_name"])
         self.config = kwargs
+        self.dataset_dir, self.data_path = resolve_dataset_dir(kwargs["data_root"], kwargs["dataset_name"])
         self.graph_path = self._resolve_graph_path(kwargs.get("graph_path"))
 
         self.variable, self.time_feature = self._read_data()
@@ -184,7 +228,7 @@ class DataInterface(pl.LightningDataModule):
         resolved_path = Path(graph_path).expanduser()
         if resolved_path.is_absolute():
             return resolved_path
-        return Path(self.config["data_root"]) / resolved_path
+        return self.dataset_dir / resolved_path
 
     def _read_data(self):
         variable, raw_timestamp = load_dataset_arrays(
