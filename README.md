@@ -42,13 +42,13 @@ EasyTSFNext 是一个面向科研 idea 快速验证的轻量时序预测仓库�
 
 `study` 不抽象数据逻辑，不维护 `dataset -> 超参` 规则，只做编排、resume 和聚合。
 
-当前正式维护的模型矩阵由 preset 和 smoke 测试共同定义：
+当前正式维护的模型集合由 `easytsf/model/contracts.py` 和 experiment preset 共同约束；当前 smoke 训练主要覆盖 Simple 系列 baseline，`iTransformer` 额外有前向校验：
 
 - `mtsf`：`SimpleMLP`、`iTransformer`、`MOMENT`、`CoRA`
 - `stf`：`SimpleGraphMLP`、`STGCN`、`CoRAGraph`
 - `grid2dtsf/grid3dtsf`：`SimpleGridMLP`、`CoRAGrid`
 
-其余历史模型仍保留在仓库里，但按 legacy 对待，不纳入默认 preset / smoke 保障范围。
+其余历史模型仍保留在仓库里，但按 legacy 对待，不纳入默认 preset / maintained matrix 保障范围。
 
 ## 环境
 
@@ -302,9 +302,16 @@ cases:
 
 ## 配置组织
 
-配置按两层合并，优先级固定为：
+配置主体按三层合并，优先级固定为：
 
-`experiment > task`
+`config overrides > experiment > task`
+
+其中 `config overrides` 包括：
+
+- `--set SECTION.KEY=VALUE`
+- `study` 中 `cases[].overrides`
+
+像 `--seed`、`--data_root`、`--save_root`、`--accelerator` 这类运行时参数不走四个 YAML section，而是在配置展开后单独覆盖。
 
 对应位置：
 
@@ -373,10 +380,13 @@ python scripts/migrate_sequence_dataset_to_basicts.py --data_root dataset --data
 
 `save/<model_name>_<dataset_name>/<conf_hash>/seed_<seed>/`
 
-每次训练或评估会额外保存：
+每次训练或评估都会额外保存：
 
 - `resolved_config.yaml`
 - `metrics.json`
+
+训练流程还会额外保存：
+
 - `checkpoints/`
 
 `metrics.json` 至少包含：
@@ -400,7 +410,7 @@ python scripts/migrate_sequence_dataset_to_basicts.py --data_root dataset --data
 其中包含：
 
 - `runs.csv`：一行一个 seed 运行
-- `summary.csv`：按 `task_name,model_name,dataset_name,hist_len,pred_len` 聚合后的均值/方差
+- `summary.csv`：按 `task_name,model_name,dataset_name,hist_len,pred_len` 聚合后的均值/标准差（当前实现使用总体标准差）
 
 ## 模型接入
 
