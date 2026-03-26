@@ -1,9 +1,14 @@
 import numpy as np
 
-from .data_module import (
-    DataInterface,
+from .base import (
+    BaseDataInterface,
+    DATA_FILE_NAME,
+    GeneralTSFDataset,
     build_time_feature,
     load_dataset_arrays,
+    load_meta_split_lengths,
+    load_npy_array,
+    require_dataset_file,
 )
 from .spec import DataSpec
 
@@ -15,12 +20,7 @@ COORD_FILE_NAME = "coord.npy"
 def _load_optional_side_array(path, use_mmap=False):
     if path is None or not path.exists():
         return None
-
-    load_kwargs = {"allow_pickle": False}
-    if use_mmap:
-        load_kwargs["mmap_mode"] = "r"
-    array = np.load(path, **load_kwargs)
-    return array.astype(np.float32, copy=False)
+    return load_npy_array(path, use_mmap=use_mmap, dtype=np.float32)
 
 
 def load_grid_dataset_arrays(npz_path, grid_mask_path=None, coord_path=None, use_mmap=False, cache_npz_as_npy=None):
@@ -34,16 +34,21 @@ def load_grid_dataset_arrays(npz_path, grid_mask_path=None, coord_path=None, use
     return variable, timestamp, grid_mask, coord
 
 
-class GridDataInterface(DataInterface):
+class GridDataInterface(BaseDataInterface):
     def __init__(self, **kwargs):
         self.grid_mask = None
         self.coord = None
         self.channel_num = None
         self.spatial_shape = None
         self.spatial_ndim = None
+        self.variable = None
+        self.time_feature = None
         super().__init__(**kwargs)
 
-    def _read_data(self):
+    def _setup_dataset(self):
+        self.data_path = require_dataset_file(self.dataset_dir, DATA_FILE_NAME, self.dataset_name)
+        split_lengths = load_meta_split_lengths(self.meta, self.meta_path)
+
         variable, raw_timestamp, grid_mask, coord = load_grid_dataset_arrays(
             self.data_path,
             grid_mask_path=self.dataset_dir / GRID_MASK_FILE_NAME,
@@ -62,6 +67,14 @@ class GridDataInterface(DataInterface):
                     len(raw_timestamp),
                     len(variable),
                     self.data_path,
+                )
+            )
+        if sum(split_lengths) != int(len(variable)):
+            raise ValueError(
+                "grid dataset split_lengths {} do not sum to total length {} for {}".format(
+                    split_lengths,
+                    int(len(variable)),
+                    self.meta_path,
                 )
             )
 
@@ -90,18 +103,22 @@ class GridDataInterface(DataInterface):
                     )
                 )
 
+        self.variable = variable
         self.grid_mask = grid_mask
         self.coord = coord
-        time_feature = build_time_feature(
+        if bool(self.meta.get("has_graph")):
+            raise ValueError("grid dataset meta must not declare has_graph=true: {}".format(self.meta_path))
+        self.time_feature = build_time_feature(
             raw_timestamp,
             self.time_feature_cls,
             self.norm_time_feature,
-            self.config["freq"],
+            self.freq,
         )
-        return variable, time_feature
+        self.data_spec = self._build_data_spec()
 
-    def _read_graph(self):
-        return None
+        self._record_resolved_conf("split_lengths", split_lengths, "grid dataset meta", validate_keys=("data_split", "split_lengths"))
+        self._record_resolved_conf("time_feature_dim", int(self.time_feature.shape[-1]), "grid dataset timestamps")
+        self._record_resolved_conf("has_graph", False, "grid dataset layout")
 
     def _build_data_spec(self):
         time_feature_dim = int(self.time_feature.shape[-1]) if self.time_feature.ndim == 2 else 0
@@ -115,3 +132,62 @@ class GridDataInterface(DataInterface):
             has_coord=self.coord is not None,
             time_feature_dim=time_feature_dim,
         )
+
+    def _split_bounds(self):
+        split_lengths = self.get_resolved_conf_updates()["split_lengths"]
+        train_len, val_len, test_len = [int(item) for item in split_lengths]
+        return train_len, val_len, test_len
+
+    def train_dataloader(self):
+        if self._train_loader is None:
+            train_len, _, _ = self._split_bounds()
+            train_dataset = GeneralTSFDataset(
+                self.hist_len,
+                self.pred_len,
+                self.variable[:train_len],
+                self.time_feature[:train_len],
+                precompute_window_index=self.precompute_window_index,
+            )
+            self._train_loader = self._create_loader(
+                dataset=train_dataset,
+                batch_size=self.batch_size,
+                shuffle=True,
+                drop_last=True,
+            )
+        return self._train_loader
+
+    def val_dataloader(self):
+        if self._val_loader is None:
+            train_len, val_len, _ = self._split_bounds()
+            val_dataset = GeneralTSFDataset(
+                self.hist_len,
+                self.pred_len,
+                self.variable[train_len - self.hist_len:train_len + val_len],
+                self.time_feature[train_len - self.hist_len:train_len + val_len],
+                precompute_window_index=self.precompute_window_index,
+            )
+            self._val_loader = self._create_loader(
+                dataset=val_dataset,
+                batch_size=self.batch_size,
+                shuffle=False,
+                drop_last=False,
+            )
+        return self._val_loader
+
+    def test_dataloader(self):
+        if self._test_loader is None:
+            train_len, val_len, _ = self._split_bounds()
+            test_dataset = GeneralTSFDataset(
+                self.hist_len,
+                self.pred_len,
+                self.variable[train_len + val_len - self.hist_len:],
+                self.time_feature[train_len + val_len - self.hist_len:],
+                precompute_window_index=self.precompute_window_index,
+            )
+            self._test_loader = self._create_loader(
+                dataset=test_dataset,
+                batch_size=1,
+                shuffle=False,
+                drop_last=False,
+            )
+        return self._test_loader

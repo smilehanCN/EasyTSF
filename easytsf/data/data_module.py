@@ -1,278 +1,160 @@
-import os
-from pathlib import Path
-
-import lightning.pytorch as pl
 import numpy as np
-import pandas as pd
-from torch.utils.data import DataLoader, Dataset
 
+from .base import (
+    BaseDataInterface,
+    BasicTSSequenceDataset,
+    SPLIT_NAMES,
+    load_graph_array,
+    load_npy_array,
+    load_timestamp_descriptions,
+    require_dataset_file,
+    restore_basic_ts_timestamps,
+)
 from .spec import DataSpec
 
 
-DATA_ARRAY_KEY = "scaled_variable"
-TIMESTAMP_ARRAY_KEY = "timestamp"
-DATA_FILE_NAME = "data.npz"
+def _split_data_file_name(split_name):
+    return "{}_data.npy".format(split_name)
 
 
-def resolve_dataset_dir(data_root, dataset_name):
-    dataset_root = Path(data_root).expanduser()
-    dataset_dir = dataset_root / str(dataset_name)
-    data_path = dataset_dir / DATA_FILE_NAME
-    legacy_path = dataset_root / "{}.npz".format(dataset_name)
-
-    if dataset_dir.exists():
-        if not dataset_dir.is_dir():
-            raise NotADirectoryError("dataset '{}' path is not a directory: {}".format(dataset_name, dataset_dir))
-        if not data_path.exists():
-            raise FileNotFoundError(
-                "dataset '{}' must include '{}' under directory '{}'".format(
-                    dataset_name,
-                    DATA_FILE_NAME,
-                    dataset_dir,
-                )
-            )
-        return dataset_dir, data_path
-
-    if legacy_path.exists():
-        raise FileNotFoundError(
-            "legacy flat dataset layout is no longer supported for '{}': found {}; expected directory layout at {}".format(
-                dataset_name,
-                legacy_path,
-                data_path,
-            )
-        )
-
-    raise FileNotFoundError(
-        "dataset '{}' must be stored under directory '{}' with required file '{}'".format(
-            dataset_name,
-            dataset_dir,
-            data_path,
-        )
-    )
+def _split_timestamp_file_name(split_name):
+    return "{}_timestamps.npy".format(split_name)
 
 
-def _cache_dir_for_npz(npz_path):
-    npz_path = Path(npz_path)
-    return npz_path.parent / ".easytsf_cache" / npz_path.stem
+class DataInterface(BaseDataInterface):
+    def _setup_dataset(self):
+        self.split_variable = {}
+        self.split_time_feature = {}
+        split_lengths = []
+        timestamp_presence = []
+        timestamp_descriptions = load_timestamp_descriptions(self.meta)
 
+        expected_var_num = None
+        expected_timestamp_dim = None
+        meta_split_lengths = self.meta.get("split_lengths")
+        if meta_split_lengths is not None:
+            meta_split_lengths = [int(item) for item in meta_split_lengths]
+            if len(meta_split_lengths) != len(SPLIT_NAMES):
+                raise ValueError("dataset meta split_lengths must contain three items: {}".format(self.meta_path))
 
-def _cache_path_for_key(npz_path, key):
-    return _cache_dir_for_npz(npz_path) / "{}.npy".format(key)
-
-
-def _atomic_save_array(target_path, array):
-    target_path = Path(target_path)
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = target_path.with_name("{}.{}.tmp.npy".format(target_path.stem, os.getpid()))
-    np.save(temp_path, array)
-    temp_path.replace(target_path)
-
-
-def _cache_needs_refresh(npz_path, keys):
-    npz_path = Path(npz_path)
-    source_mtime = npz_path.stat().st_mtime
-    for key in keys:
-        cache_path = _cache_path_for_key(npz_path, key)
-        if not cache_path.exists() or cache_path.stat().st_mtime < source_mtime:
-            return True
-    return False
-
-
-def _materialize_npy_cache(npz_path, keys):
-    npz_path = Path(npz_path)
-    with np.load(npz_path) as data:
-        for key in keys:
-            if key not in data:
-                continue
-            array = data[key]
-            if key == DATA_ARRAY_KEY:
-                array = array.astype(np.float32, copy=False)
-            _atomic_save_array(_cache_path_for_key(npz_path, key), array)
-
-
-def _ensure_npy_cache(npz_path, keys):
-    try:
-        if _cache_needs_refresh(npz_path, keys):
-            _materialize_npy_cache(npz_path, keys)
-        return True
-    except OSError:
-        return False
-
-
-def load_dataset_arrays(npz_path, use_mmap=False, cache_npz_as_npy=None):
-    if cache_npz_as_npy is None:
-        cache_npz_as_npy = use_mmap
-
-    required_keys = (DATA_ARRAY_KEY, TIMESTAMP_ARRAY_KEY)
-    if use_mmap and cache_npz_as_npy and _ensure_npy_cache(npz_path, required_keys):
-        variable = np.load(_cache_path_for_key(npz_path, DATA_ARRAY_KEY), mmap_mode="r")
-        timestamp = np.load(_cache_path_for_key(npz_path, TIMESTAMP_ARRAY_KEY), mmap_mode="r")
-        return variable, timestamp
-
-    with np.load(npz_path) as data:
-        variable = data[DATA_ARRAY_KEY].astype(np.float32, copy=False)
-        timestamp = data[TIMESTAMP_ARRAY_KEY]
-    return variable, timestamp
-
-
-def load_graph_array(graph_path):
-    loaded = np.load(graph_path, allow_pickle=False)
-    if isinstance(loaded, np.lib.npyio.NpzFile):
-        try:
-            if "graph" not in loaded:
-                raise KeyError("graph file must contain a 'graph' array: {}".format(graph_path))
-            graph = loaded["graph"]
-        finally:
-            loaded.close()
-    else:
-        graph = loaded
-    return np.asarray(graph, dtype=np.float32)
-
-
-def build_time_feature(raw_timestamp, time_feature_cls, norm_time_feature, freq):
-    timestamp = pd.DatetimeIndex(raw_timestamp)
-    if len(time_feature_cls) == 0:
-        return np.empty((len(timestamp), 0), dtype=np.float32)
-
-    time_feature = np.empty((len(timestamp), len(time_feature_cls)), dtype=np.float32)
-    for feature_idx, tf_cls in enumerate(time_feature_cls):
-        if tf_cls == "tod":
-            tod_size = int((24 * 60) / freq) - 1
-            tod = (timestamp.hour.to_numpy() * 60 + timestamp.minute.to_numpy()) / freq
-            time_feature[:, feature_idx] = tod / tod_size - 0.5 if norm_time_feature else tod
-        elif tf_cls == "dow":
-            dow_size = 7 - 1
-            dow = timestamp.dayofweek.to_numpy()
-            time_feature[:, feature_idx] = dow / dow_size - 0.5 if norm_time_feature else dow
-        elif tf_cls == "dom":
-            dom_size = 31 - 1
-            dom = timestamp.day.to_numpy() - 1
-            time_feature[:, feature_idx] = dom / dom_size - 0.5 if norm_time_feature else dom
-        elif tf_cls == "doy":
-            doy_size = 366 - 1
-            doy = timestamp.dayofyear.to_numpy() - 1
-            time_feature[:, feature_idx] = doy / doy_size - 0.5 if norm_time_feature else doy
-        else:
-            raise NotImplementedError("unsupported time feature: {}".format(tf_cls))
-    return time_feature
-
-
-def _ensure_writable_array(array):
-    if hasattr(array, "flags") and not array.flags.writeable:
-        return np.array(array, copy=True)
-    return array
-
-
-class GeneralTSFDataset(Dataset):
-    def __init__(self, hist_len, pred_len, variable, time_feature, precompute_window_index=False):
-        self.hist_len = hist_len
-        self.pred_len = pred_len
-        self.variable = variable
-        self.time_feature = time_feature
-        self.total_windows = len(self.variable) - (self.hist_len + self.pred_len) + 1
-        if self.total_windows <= 0:
-            raise ValueError("invalid dataset split for sliding window")
-        self.window_start_index = None
-        if precompute_window_index:
-            self.window_start_index = np.arange(self.total_windows, dtype=np.int32)
-
-    def __getitem__(self, index):
-        hist_start = int(self.window_start_index[index]) if self.window_start_index is not None else index
-        hist_end = hist_start + self.hist_len
-        pred_end = hist_end + self.pred_len
-
-        var_x = _ensure_writable_array(self.variable[hist_start:hist_end, ...])
-        tf_x = _ensure_writable_array(self.time_feature[hist_start:hist_end, ...])
-        var_y = _ensure_writable_array(self.variable[hist_end:pred_end, ...])
-        tf_y = _ensure_writable_array(self.time_feature[hist_end:pred_end, ...])
-        return var_x, tf_x, var_y, tf_y
-
-    def __len__(self):
-        return self.total_windows
-
-
-class DataInterface(pl.LightningDataModule):
-    def __init__(self, **kwargs):
-        super().__init__()
-        self.num_workers = kwargs["num_workers"]
-        self.batch_size = kwargs["batch_size"]
-        self.hist_len = kwargs["hist_len"]
-        self.pred_len = kwargs["pred_len"]
-        self.norm_time_feature = kwargs["norm_time_feature"]
-        self.train_len, self.val_len, self.test_len = kwargs["data_split"]
-        self.time_feature_cls = kwargs["time_feature_cls"]
-        self.pin_memory = kwargs.get("pin_memory")
-        if self.pin_memory is None:
-            self.pin_memory = kwargs.get("accelerator", "auto") in {"gpu", "cuda"}
-        self.persistent_workers = kwargs.get("persistent_workers")
-        if self.persistent_workers is None:
-            self.persistent_workers = self.num_workers > 0
-        self.prefetch_factor = kwargs.get("prefetch_factor", 2)
-        self.use_mmap = kwargs.get("use_mmap", False)
-        self.cache_npz_as_npy = kwargs.get("cache_npz_as_npy")
-        self.precompute_window_index = kwargs.get("precompute_window_index", False)
-        self.config = kwargs
-        self.dataset_dir, self.data_path = resolve_dataset_dir(kwargs["data_root"], kwargs["dataset_name"])
-        self.graph_path = self._resolve_graph_path(kwargs.get("graph_path"))
-
-        self.variable, self.time_feature = self._read_data()
-        self.graph = self._read_graph()
-        self.data_spec = self._build_data_spec()
-        self._train_loader = None
-        self._val_loader = None
-        self._test_loader = None
-
-    def _resolve_graph_path(self, graph_path):
-        if not graph_path:
-            return None
-        resolved_path = Path(graph_path).expanduser()
-        if resolved_path.is_absolute():
-            return resolved_path
-        return self.dataset_dir / resolved_path
-
-    def _read_data(self):
-        variable, raw_timestamp = load_dataset_arrays(
-            self.data_path,
-            use_mmap=self.use_mmap,
-            cache_npz_as_npy=self.cache_npz_as_npy,
-        )
-        variable = variable.astype(np.float32, copy=False)
-        if variable.ndim != 2:
-            if variable.ndim == 1:
+        for split_idx, split_name in enumerate(SPLIT_NAMES):
+            data_path = require_dataset_file(self.dataset_dir, _split_data_file_name(split_name), self.dataset_name)
+            variable = load_npy_array(data_path, use_mmap=self.use_mmap, dtype=np.float32)
+            if variable.ndim != 2:
+                if variable.ndim == 1:
+                    raise ValueError(
+                        "mtsf/stf dataset '{}' must store {} as [L, N]; for univariate forecasting, store it as [L, 1]".format(
+                            data_path,
+                            _split_data_file_name(split_name),
+                        )
+                    )
                 raise ValueError(
-                    "mtsf/stf dataset '{}' must store scaled_variable as [L, N]; "
-                    "for univariate forecasting, store it as [L, 1] instead of raw [L]".format(self.data_path)
+                    "mtsf/stf dataset '{}' must store {} as [L, N], but received shape {}".format(
+                        data_path,
+                        _split_data_file_name(split_name),
+                        tuple(variable.shape),
+                    )
                 )
+
+            split_length = int(len(variable))
+            split_lengths.append(split_length)
+            if meta_split_lengths is not None and split_length != int(meta_split_lengths[split_idx]):
+                raise ValueError(
+                    "dataset meta split_lengths {} does not match {} length {} for {}".format(
+                        meta_split_lengths,
+                        split_name,
+                        split_length,
+                        self.meta_path,
+                    )
+                )
+
+            if expected_var_num is None:
+                expected_var_num = int(variable.shape[1])
+            elif int(variable.shape[1]) != expected_var_num:
+                raise ValueError(
+                    "dataset splits must have consistent width, but '{}' has {} and expected {}".format(
+                        data_path,
+                        int(variable.shape[1]),
+                        expected_var_num,
+                    )
+                )
+
+            timestamp_path = self.dataset_dir / _split_timestamp_file_name(split_name)
+            has_timestamp = timestamp_path.exists()
+            timestamp_presence.append(has_timestamp)
+            if has_timestamp:
+                raw_timestamps = load_npy_array(timestamp_path, use_mmap=self.use_mmap, dtype=np.float32)
+                if len(timestamp_descriptions) == 0:
+                    raise ValueError(
+                        "dataset '{}' provides {} but meta.json is missing timestamps_description".format(
+                            self.dataset_name,
+                            timestamp_path.name,
+                        )
+                    )
+                time_feature = restore_basic_ts_timestamps(raw_timestamps, timestamp_descriptions, self.freq)
+                if len(time_feature) != split_length:
+                    raise ValueError(
+                        "timestamp length {} does not match data length {} for {}".format(
+                            len(time_feature),
+                            split_length,
+                            timestamp_path,
+                        )
+                    )
+                timestamp_dim = int(time_feature.shape[1])
+                if expected_timestamp_dim is None:
+                    expected_timestamp_dim = timestamp_dim
+                elif timestamp_dim != expected_timestamp_dim:
+                    raise ValueError(
+                        "dataset timestamp width {} does not match expected {} for {}".format(
+                            timestamp_dim,
+                            expected_timestamp_dim,
+                            timestamp_path,
+                        )
+                    )
+            else:
+                time_feature = None
+
+            self.split_variable[split_name] = variable
+            self.split_time_feature[split_name] = time_feature
+
+        if any(timestamp_presence) and not all(timestamp_presence):
+            raise FileNotFoundError(
+                "dataset '{}' must provide BasicTS timestamps for all splits or none of them".format(self.dataset_name)
+            )
+
+        if not any(timestamp_presence):
+            expected_timestamp_dim = 0
+            for split_name in SPLIT_NAMES:
+                split_length = int(len(self.split_variable[split_name]))
+                self.split_time_feature[split_name] = np.empty((split_length, 0), dtype=np.float32)
+
+        meta_num_vars = self.meta.get("num_vars")
+        if meta_num_vars is not None and int(meta_num_vars) != expected_var_num:
             raise ValueError(
-                "mtsf/stf dataset '{}' must store scaled_variable as [L, N], but received shape {}".format(
-                    self.data_path,
-                    tuple(variable.shape),
+                "dataset meta num_vars {} does not match data width {} for {}".format(
+                    int(meta_num_vars),
+                    expected_var_num,
+                    self.meta_path,
                 )
             )
-        expected_var_num = self.config.get("var_num")
-        if expected_var_num is not None and int(expected_var_num) != int(variable.shape[1]):
+
+        self.var_num = int(expected_var_num)
+        self.time_feature_dim = int(expected_timestamp_dim)
+        self.graph = self._read_graph()
+        meta_has_graph = self.meta.get("has_graph")
+        if meta_has_graph is not None and bool(meta_has_graph) != bool(self.graph is not None):
             raise ValueError(
-                "dataset '{}' width {} does not match configured var_num {}".format(
-                    self.data_path,
-                    int(variable.shape[1]),
-                    int(expected_var_num),
+                "dataset meta has_graph={} does not match graph side file presence for {}".format(
+                    meta_has_graph,
+                    self.meta_path,
                 )
             )
-        if len(raw_timestamp) != len(variable):
-            raise ValueError(
-                "timestamp length {} does not match data length {} for {}".format(
-                    len(raw_timestamp),
-                    len(variable),
-                    self.data_path,
-                )
-            )
-        time_feature = build_time_feature(
-            raw_timestamp,
-            self.time_feature_cls,
-            self.norm_time_feature,
-            self.config["freq"],
-        )
-        return variable, time_feature
+        self.data_spec = self._build_data_spec()
+
+        self._record_resolved_conf("var_num", self.var_num, "dataset files/meta")
+        self._record_resolved_conf("split_lengths", split_lengths, "dataset split files", validate_keys=("data_split", "split_lengths"))
+        self._record_resolved_conf("time_feature_dim", self.time_feature_dim, "dataset timestamps/meta")
+        self._record_resolved_conf("has_graph", self.graph is not None, "dataset graph side input")
 
     def _read_graph(self):
         if self.graph_path is None:
@@ -280,18 +162,17 @@ class DataInterface(pl.LightningDataModule):
         graph = load_graph_array(self.graph_path)
         if graph.ndim != 2 or graph.shape[0] != graph.shape[1]:
             raise ValueError("graph adjacency must be a square matrix: {}".format(self.graph_path))
-        if graph.shape[0] != self.variable.shape[1]:
+        if graph.shape[0] != self.var_num:
             raise ValueError(
                 "graph node count {} does not match dataset width {} for {}".format(
                     int(graph.shape[0]),
-                    int(self.variable.shape[1]),
-                    self.data_path,
+                    self.var_num,
+                    self.graph_path,
                 )
             )
         return graph
 
     def _build_data_spec(self):
-        time_feature_dim = int(self.time_feature.shape[-1]) if self.time_feature.ndim == 2 else 0
         return DataSpec(
             layout_kind="sequence",
             spatial_ndim=0,
@@ -300,34 +181,22 @@ class DataInterface(pl.LightningDataModule):
             has_graph=self.graph is not None,
             has_grid_mask=False,
             has_coord=False,
-            time_feature_dim=time_feature_dim,
+            time_feature_dim=int(self.time_feature_dim),
         )
 
-    def _create_loader(self, dataset, batch_size, shuffle, drop_last):
-        loader_args = dict(
-            dataset=dataset,
-            batch_size=batch_size,
-            num_workers=self.num_workers,
-            shuffle=shuffle,
-            drop_last=drop_last,
-            pin_memory=self.pin_memory,
+    def _build_split_dataset(self, split_name):
+        return BasicTSSequenceDataset(
+            hist_len=self.hist_len,
+            pred_len=self.pred_len,
+            variable=self.split_variable[split_name],
+            timestamps=self.split_time_feature[split_name],
+            precompute_window_index=self.precompute_window_index,
         )
-        if self.num_workers > 0:
-            loader_args["persistent_workers"] = self.persistent_workers
-            loader_args["prefetch_factor"] = self.prefetch_factor
-        return DataLoader(**loader_args)
 
     def train_dataloader(self):
         if self._train_loader is None:
-            train_dataset = GeneralTSFDataset(
-                self.hist_len,
-                self.pred_len,
-                self.variable[:self.train_len],
-                self.time_feature[:self.train_len],
-                precompute_window_index=self.precompute_window_index,
-            )
             self._train_loader = self._create_loader(
-                dataset=train_dataset,
+                dataset=self._build_split_dataset("train"),
                 batch_size=self.batch_size,
                 shuffle=True,
                 drop_last=True,
@@ -336,15 +205,8 @@ class DataInterface(pl.LightningDataModule):
 
     def val_dataloader(self):
         if self._val_loader is None:
-            val_dataset = GeneralTSFDataset(
-                self.hist_len,
-                self.pred_len,
-                self.variable[self.train_len - self.hist_len:self.train_len + self.val_len],
-                self.time_feature[self.train_len - self.hist_len:self.train_len + self.val_len],
-                precompute_window_index=self.precompute_window_index,
-            )
             self._val_loader = self._create_loader(
-                dataset=val_dataset,
+                dataset=self._build_split_dataset("val"),
                 batch_size=self.batch_size,
                 shuffle=False,
                 drop_last=False,
@@ -353,15 +215,8 @@ class DataInterface(pl.LightningDataModule):
 
     def test_dataloader(self):
         if self._test_loader is None:
-            test_dataset = GeneralTSFDataset(
-                self.hist_len,
-                self.pred_len,
-                self.variable[self.train_len + self.val_len - self.hist_len:],
-                self.time_feature[self.train_len + self.val_len - self.hist_len:],
-                precompute_window_index=self.precompute_window_index,
-            )
             self._test_loader = self._create_loader(
-                dataset=test_dataset,
+                dataset=self._build_split_dataset("test"),
                 batch_size=1,
                 shuffle=False,
                 drop_last=False,

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,9 +36,7 @@ def _make_common_conf(tmpdir, dataset_name, task_name):
         "batch_size": 2,
         "num_workers": 0,
         "norm_time_feature": False,
-        "data_split": [7, 3, 2],
         "time_feature_cls": ["tod"],
-        "freq": 60,
         "max_epochs": 1,
         "lr": 0.001,
         "lr_scheduler": "OneCycleLR",
@@ -71,11 +70,22 @@ class GridSupportTestCase(unittest.TestCase):
         dataset_dir.mkdir(parents=True, exist_ok=True)
         return dataset_dir
 
-    def _write_grid_dataset(self, root, dataset_name, variable, grid_mask=None, coord=None):
+    def _write_meta(self, dataset_dir, dataset_name, split_lengths, freq=60):
+        meta = {
+            "name": dataset_name,
+            "frequency (minutes)": int(freq),
+            "split_lengths": [int(item) for item in split_lengths],
+            "has_graph": False,
+            "timestamps_description": [],
+            "regular_settings": {},
+        }
+        with (dataset_dir / "meta.json").open("w", encoding="utf-8") as handle:
+            json.dump(meta, handle, indent=2, sort_keys=True)
+
+    def _write_grid_dataset(self, root, dataset_name, variable, grid_mask=None, coord=None, split_lengths=(7, 3, 2), freq=60):
         dataset_dir = self._make_dataset_dir(root, dataset_name)
-        dataset_path = dataset_dir / "data.npz"
         np.savez(
-            dataset_path,
+            dataset_dir / "data.npz",
             scaled_variable=variable.astype(np.float32),
             timestamp=_make_timestamp(variable.shape[0]),
         )
@@ -83,7 +93,8 @@ class GridSupportTestCase(unittest.TestCase):
             np.save(dataset_dir / "grid_mask.npy", grid_mask.astype(np.float32))
         if coord is not None:
             np.save(dataset_dir / "coord.npy", coord.astype(np.float32))
-        return dataset_path
+        self._write_meta(dataset_dir, dataset_name, split_lengths=split_lengths, freq=freq)
+        return dataset_dir
 
     def _write_legacy_flat_grid_dataset(self, root, dataset_name, variable):
         dataset_path = Path(root) / "{}.npz".format(dataset_name)
@@ -101,7 +112,6 @@ class GridSupportTestCase(unittest.TestCase):
             hist_len=3,
             pred_len=2,
             norm_time_feature=False,
-            data_split=[7, 3, 2],
             time_feature_cls=["tod"],
             pin_memory=False,
             persistent_workers=False,
@@ -111,7 +121,6 @@ class GridSupportTestCase(unittest.TestCase):
             precompute_window_index=False,
             data_root=root,
             dataset_name=dataset_name,
-            freq=60,
         )
 
     def test_grid_data_interface_loads_2d_side_inputs(self):
@@ -119,7 +128,7 @@ class GridSupportTestCase(unittest.TestCase):
             variable = np.arange(12 * 2 * 3 * 4, dtype=np.float32).reshape(12, 2, 3, 4)
             grid_mask = np.ones((3, 4), dtype=np.float32)
             coord = np.stack(np.meshgrid(np.arange(3), np.arange(4), indexing="ij"), axis=0).astype(np.float32)
-            self._write_grid_dataset(tmpdir, "grid2d_case", variable, grid_mask=grid_mask, coord=coord)
+            datamodule_dir = self._write_grid_dataset(tmpdir, "grid2d_case", variable, grid_mask=grid_mask, coord=coord)
 
             datamodule = self._build_grid_datamodule(tmpdir, "grid2d_case")
             batch = next(iter(datamodule.train_dataloader()))
@@ -132,6 +141,8 @@ class GridSupportTestCase(unittest.TestCase):
             self.assertEqual(tuple(batch[0].shape), (2, 3, 2, 3, 4))
             self.assertEqual(tuple(batch[1].shape), (2, 3, 1))
             self.assertEqual(tuple(batch[2].shape), (2, 2, 2, 3, 4))
+            self.assertEqual(datamodule.get_resolved_conf_updates()["split_lengths"], [7, 3, 2])
+            self.assertTrue((datamodule_dir / "meta.json").exists())
 
     def test_grid_data_interface_validates_3d_coord_shape(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -143,6 +154,15 @@ class GridSupportTestCase(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "coord shape"):
                 self._build_grid_datamodule(tmpdir, "grid3d_bad_coord")
 
+    def test_grid_data_interface_requires_meta_json(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dataset_dir = self._make_dataset_dir(tmpdir, "grid_missing_meta")
+            variable = np.arange(12 * 2 * 3 * 4, dtype=np.float32).reshape(12, 2, 3, 4)
+            np.savez(dataset_dir / "data.npz", scaled_variable=variable, timestamp=_make_timestamp(variable.shape[0]))
+
+            with self.assertRaisesRegex(FileNotFoundError, "meta.json"):
+                self._build_grid_datamodule(tmpdir, "grid_missing_meta")
+
     def test_grid_data_interface_rejects_legacy_flat_layout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             variable = np.arange(12 * 2 * 3 * 4, dtype=np.float32).reshape(12, 2, 3, 4)
@@ -150,6 +170,14 @@ class GridSupportTestCase(unittest.TestCase):
 
             with self.assertRaisesRegex(FileNotFoundError, "legacy flat dataset layout is no longer supported"):
                 self._build_grid_datamodule(tmpdir, "legacy_grid")
+
+    def test_grid_data_interface_validates_split_lengths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(12 * 2 * 3 * 4, dtype=np.float32).reshape(12, 2, 3, 4)
+            self._write_grid_dataset(tmpdir, "grid_bad_split", variable, split_lengths=(6, 3, 2))
+
+            with self.assertRaisesRegex(ValueError, "do not sum to total length"):
+                self._build_grid_datamodule(tmpdir, "grid_bad_split")
 
     def test_windfield3d_directory_contract_loads_expected_shapes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -164,6 +192,7 @@ class GridSupportTestCase(unittest.TestCase):
             coord = np.stack(np.meshgrid(*axes, indexing="ij"), axis=0).astype(np.float32)
             np.savez(dataset_dir / "data.npz", scaled_variable=variable, timestamp=timestamp)
             np.save(dataset_dir / "coord.npy", coord)
+            self._write_meta(dataset_dir, "WindField3DDemo", split_lengths=(10, 3, 3), freq=1)
 
             datamodule = GridDataInterface(
                 num_workers=0,
@@ -171,7 +200,6 @@ class GridSupportTestCase(unittest.TestCase):
                 hist_len=2,
                 pred_len=2,
                 norm_time_feature=False,
-                data_split=[10, 3, 3],
                 time_feature_cls=[],
                 pin_memory=False,
                 persistent_workers=False,
@@ -181,7 +209,6 @@ class GridSupportTestCase(unittest.TestCase):
                 precompute_window_index=False,
                 data_root=tmpdir,
                 dataset_name="WindField3DDemo",
-                freq=1,
             )
             batch = next(iter(datamodule.train_dataloader()))
 
@@ -212,6 +239,7 @@ class GridSupportTestCase(unittest.TestCase):
             self.assertIsInstance(experiment.task, Grid2DTSFTask)
             self.assertEqual(experiment.conf["spatial_ndim"], 2)
             self.assertEqual(experiment.conf["channel_num"], 2)
+            self.assertEqual(experiment.conf["split_lengths"], [7, 3, 2])
             self.assertEqual(tuple(experiment.task.grid_mask.shape), (3, 4))
             self.assertEqual(tuple(experiment.task.coord.shape), (2, 3, 4))
             self.assertEqual(tuple(prediction.shape), (2, 2, 2, 3, 4))

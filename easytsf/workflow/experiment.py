@@ -17,7 +17,6 @@ from lightning.pytorch.loggers import CSVLogger, WandbLogger
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_ROOT = PROJECT_ROOT / "config"
 TASK_CONFIG_DIR = CONFIG_ROOT / "tasks"
-DATASET_CATALOG_PATH = CONFIG_ROOT / "datasets" / "catalog.yaml"
 EXPERIMENT_CONFIG_DIR = CONFIG_ROOT / "experiments"
 SEARCH_SPACE_DIR = CONFIG_ROOT / "search_spaces"
 STUDY_CONFIG_DIR = CONFIG_ROOT / "studies"
@@ -212,16 +211,6 @@ def _resolve_search_space_path(param_space_ref):
     raise FileNotFoundError("search-space config not found: {}".format(param_space_ref))
 
 
-def _load_dataset_defaults(dataset_name):
-    catalog = _load_yaml(DATASET_CATALOG_PATH)
-    if dataset_name not in catalog:
-        raise KeyError("dataset '{}' is not defined in {}".format(dataset_name, DATASET_CATALOG_PATH))
-    dataset_entry = catalog[dataset_name]
-    if not isinstance(dataset_entry, dict):
-        raise ValueError("dataset '{}' entry must be a mapping".format(dataset_name))
-    return _normalize_section_map(dataset_entry, "dataset '{}'".format(dataset_name))
-
-
 def _load_task_defaults(task_name):
     task_config_path = TASK_CONFIG_DIR / "{}.yaml".format(task_name)
     if not task_config_path.exists():
@@ -263,8 +252,7 @@ def load_config(config_ref, overrides=None):
     if not dataset_name:
         raise ValueError("experiment config must define data.dataset_name: {}".format(experiment_path))
 
-    dataset_defaults = _load_dataset_defaults(dataset_name)
-    merged_config = _merge_sectioned_config(task_defaults, dataset_defaults, experiment_config, normalized_overrides)
+    merged_config = _merge_sectioned_config(task_defaults, experiment_config, normalized_overrides)
     return _flatten_config(merged_config)
 
 
@@ -442,6 +430,8 @@ def build_experiment(conf, training=True):
     task_entry = get_task_registry_entry(task_name)
     datamodule = task_entry.datamodule_cls(**conf)
     task_entry.validate_data_spec(finalized_conf["dataset_name"], datamodule.data_spec)
+
+    finalized_conf.update(datamodule.get_resolved_conf_updates())
 
     finalized_conf["data_spec"] = datamodule.data_spec
     if datamodule.data_spec.channel_num is not None:

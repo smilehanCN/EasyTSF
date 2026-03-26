@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 
+from easytsf.data import DataInterface, DataSpec, GridDataInterface
 from easytsf.model import get_maintained_model_names, get_model_contract
 from easytsf.task import get_task_registry_entry
 from easytsf.workflow.experiment import load_config
@@ -19,9 +20,6 @@ class ConfigContractsTestCase(unittest.TestCase):
             with self.subTest(config_ref=config_ref):
                 self.assertFalse(contract.is_legacy)
                 self.assertIn(conf["task_name"], contract.supported_task_names)
-                for side_input in task_entry.required_side_inputs:
-                    conf_key = "{}_path".format(side_input) if side_input == "graph" else side_input
-                    self.assertIn(conf_key, conf)
 
     def test_maintained_model_names_match_experiment_matrix(self):
         experiment_root = Path(__file__).resolve().parents[1] / "config" / "experiments"
@@ -36,6 +34,11 @@ class ConfigContractsTestCase(unittest.TestCase):
 
     def test_gridstf_registry_entry_is_marked_experimental(self):
         self.assertEqual(get_task_registry_entry("gridstf").stability, "experimental")
+
+    def test_easytsf_data_public_exports_remain_available(self):
+        self.assertIsNotNone(DataInterface)
+        self.assertIsNotNone(GridDataInterface)
+        self.assertIsNotNone(DataSpec)
 
 
 if __name__ == "__main__":

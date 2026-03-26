@@ -25,11 +25,10 @@ EasyTSFNext 是一个面向科研 idea 快速验证的轻量时序预测仓库�
 - `config/tasks/stf.yaml`：静态图时空预测默认配置
 - `config/tasks/grid2dtsf.yaml`：2D 规则网格时空预测默认配置
 - `config/tasks/grid3dtsf.yaml`：3D 规则网格时空预测默认配置
-- `config/datasets/catalog.yaml`：数据集元信息和数据加载默认项
 - `config/experiments/<model_id>/*.yaml`：单实验 preset，推荐按“模型 x 数据集”组织，路径使用全小写 id
 - `config/studies/<model_id>/*.yaml`：批量评测声明，只枚举要跑的 case 和 seeds，路径使用全小写 id
 - `config/search_spaces/<model_id>/*.py`：Ray Tune 搜索空间，路径使用全小写 id
-- `easytsf/data/`：`DataInterface`、`GridDataInterface` 和数据缓存/滑窗逻辑
+- `easytsf/data/`：`DataInterface`、`GridDataInterface`、BasicTS 风格序列数据加载与迁移工具
 - `easytsf/task/`：当前包含 `MTSFTask`、`STFTask`、`Grid2DTSFTask`、`Grid3DTSFTask` 和一个实验性 `GridSTFTask` alias
 - `easytsf/model/`：模型实现
 - `easytsf/workflow/`：`experiment` 和 `study` 的流程实现
@@ -380,14 +379,13 @@ cases:
 
 ## 配置组织
 
-配置按三层合并，优先级固定为：
+配置按两层合并，优先级固定为：
 
-`experiment > dataset > task`
+`experiment > task`
 
 对应位置：
 
 - `config/tasks/{mtsf,stf,grid2dtsf,grid3dtsf}.yaml`
-- `config/datasets/catalog.yaml`
 - `config/experiments/<model_id>/*.yaml`
 
 YAML 只使用四个顶层 section：
@@ -403,12 +401,22 @@ YAML 只使用四个顶层 section：
 
 ## 数据约定
 
-数据目录位置默认是 `dataset/<dataset_name>/`，主数据文件固定为 `dataset/<dataset_name>/data.npz`，当前主链路实际依赖的核心 key 是：
+数据目录位置默认是 `dataset/<dataset_name>/`。当前仓库把 `meta.json` 视为唯一权威元信息入口，不再维护中心化 dataset catalog。
 
-- `scaled_variable`
-- `timestamp`
+`mtsf` / `stf` 直接兼容 BasicTS 当前的序列目录布局：
 
-对于 `stf` 数据集，静态 graph 通过 dataset catalog 里的可选 `data.graph_path` 指向目录内 side file，默认约定为 `dataset/<dataset_name>/graph.npy`。相对路径统一相对数据集目录解析，graph 默认是 dense float32 矩阵，形状为 `[N, N]`。
+- `meta.json`
+- `train_data.npy`
+- `val_data.npy`
+- `test_data.npy`
+- 可选 `train_timestamps.npy` / `val_timestamps.npy` / `test_timestamps.npy`
+- `stf` 可选 `adj_mx.pkl`
+
+其中：
+
+- `meta.json` 至少负责 `name`、`frequency (minutes)`、`split_lengths`、`has_graph`
+- 时间戳文件使用 BasicTS 风格的预处理特征，`DataInterface` 会按 `timestamps_description` 还原成当前模型接口使用的 marker 语义
+- graph side file 固定约定为 `adj_mx.pkl`，兼容 BasicTS 的 raw adjacency pickle 和 `(sensor_ids, sensor_id_to_ind, adj_mx)` tuple pickle
 
 对于原生 grid 数据集，`scaled_variable` 的形状约定为：
 
@@ -422,12 +430,19 @@ grid 数据集的可选 side input 固定放在目录 side file 中：
 
 旧版 flat `dataset/<dataset_name>.npz` 已不再兼容。额外文件会被忽略。`DataInterface` / `GridDataInterface` 负责：
 
-- 读取 `data.npz`
-- 按需读取静态 graph
+- 对 sequence 任务读取 `train/val/test_*.npy`
+- 对 grid 任务读取 `data.npz`
+- 从目录内 `meta.json` 解析频率、split 长度和 side input 事实
+- 按需读取 `adj_mx.pkl`
 - 按需读取 `grid_mask` 和 `coord`
-- 生成 `tod`、`dow`、`dom`、`doy` 等时间特征
 - 按 `hist_len` / `pred_len` 切滑窗
-- 按 `data_split` 生成 train / val / test loader
+- 生成 train / val / test loader
+
+如果你手里还是旧的 sequence 目录布局，可以用迁移脚本：
+
+```shell
+python scripts/migrate_sequence_dataset_to_basicts.py --data_root dataset --dataset_name ETTh1 --split_lengths 8640,2880,2880 --freq 60 --timestamp_features tod,dow,dom,doy
+```
 
 ## 结果目录
 

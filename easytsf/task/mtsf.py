@@ -22,7 +22,20 @@ class MTSFTask(L.LightningModule):
 
     @staticmethod
     def _prepare_batch(batch):
-        return tuple(tensor if tensor.dtype == torch.float32 else tensor.float() for tensor in batch)
+        if isinstance(batch, dict):
+            inputs = batch["inputs"]
+            targets = batch["targets"]
+            inputs_timestamps = batch.get("inputs_timestamps")
+            targets_timestamps = batch.get("targets_timestamps")
+
+            if inputs_timestamps is None:
+                inputs_timestamps = inputs.new_empty((inputs.shape[0], inputs.shape[1], 0))
+            if targets_timestamps is None:
+                targets_timestamps = targets.new_empty((targets.shape[0], targets.shape[1], 0))
+            tensors = (inputs, inputs_timestamps, targets, targets_timestamps)
+        else:
+            tensors = batch
+        return tuple(tensor if tensor.dtype == torch.float32 else tensor.float() for tensor in tensors)
 
     def _build_model(self):
         model_name = self.hparams.model_name

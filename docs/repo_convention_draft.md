@@ -40,7 +40,7 @@ EasyTSFNext 的目标不是成为通用深度学习平台，而是成为一个�
 ### 1.5 可复现优先于“灵活”
 
 - 同一配置应映射到稳定的结果目录和 `conf_hash`。
-- `experiment > dataset > task` 的合并规则固定，不允许破坏。
+- `experiment > task` 的合并规则固定，不允许破坏。
 - 任何长期存在的数据集专属 recipe 都应升级为 experiment preset，而不是藏在脚本分支或 study overrides 里。
 
 ### 1.6 任务边界优先于“统一一切”
@@ -79,7 +79,6 @@ EasyTSFNext 的目标不是成为通用深度学习平台，而是成为一个�
 - `easytsf/data/`：数据读取、缓存、滑窗、loader
 - `easytsf/workflow/`：experiment / study 编排
 - `config/tasks/`：任务默认配置
-- `config/datasets/`：数据集元信息与数据加载默认项
 - `config/experiments/`：单实验预设
 - `config/studies/`：批量评测声明
 - `config/search_spaces/`：超参搜索空间
@@ -214,7 +213,7 @@ YAML 只允许使用四个顶层 section：
 
 其中研究层面最常用的表达仍保持：
 
-`experiment > dataset > task`
+`experiment > task`
 
 CLI 仅负责运行时覆盖，不负责定义新的研究配方。
 
@@ -248,16 +247,16 @@ CLI 仅负责运行时覆盖，不负责定义新的研究配方。
 - 为不同数据集内置隐式超参规则
 - 引入第二套 experiment 抽象
 
-### 4.5 dataset catalog 的职责
+### 4.5 dataset meta 的职责
 
-`config/datasets/catalog.yaml` 只维护：
+每个数据集目录内的 `meta.json` 负责维护：
 
-- 数据集元信息
-- 数据加载默认项
-- 可选静态 graph 路径
-- 时间频率、split、time feature 等共享约定
+- 数据集名称与频率
+- split 长度
+- 是否存在静态 graph
+- 时间戳描述和其他随数据一起分发的事实
 
-不得把模型专属超参塞进 dataset catalog。
+不得把模型专属超参塞进 `meta.json`。
 
 ## 5. 文档规范
 

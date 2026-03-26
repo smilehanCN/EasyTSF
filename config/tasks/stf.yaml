@@ -1,8 +1,6 @@
 data:
   hist_len: 12
   pred_len: 12
-  norm_time_feature: false
-  time_feature_cls: []
   precompute_window_index: false
 train:
   max_epochs: 30

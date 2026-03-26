@@ -54,14 +54,13 @@ A `study` is a thin batch benchmark specification. It only decides:
 - `config/tasks/stf.yaml`: default task config for the static-graph STF path
 - `config/tasks/grid2dtsf.yaml`: default task config for the native 2D-grid forecasting path
 - `config/tasks/grid3dtsf.yaml`: default task config for the native 3D-grid forecasting path
-- `config/datasets/catalog.yaml`: dataset metadata and data-loading hints
 - `config/experiments/<model_id>/*.yaml`: experiment presets
 - `config/studies/<model_id>/*.yaml`: study specs
 - `config/search_spaces/<model_id>/*.py`: Ray Tune search spaces
 
 Config merge priority is fixed:
 
-`experiment > dataset > task`
+`experiment > task`
 
 Do not break this rule and do not scatter experiment-specific constants into scripts.
 Use `runtime.task_name` to choose the task defaults; when omitted, default to `mtsf`.
@@ -70,10 +69,9 @@ Use `runtime.task_name` to choose the task defaults; when omitted, default to `m
 
 - `easytsf/data/data_module.py` contains the shared `DataInterface`.
 - `easytsf/data/grid_data_module.py` contains `GridDataInterface`.
-- Default data format is `dataset/<dataset_name>.npz`.
-- The current pipeline only requires `scaled_variable` and `timestamp`.
-- Static graph datasets may also define `data.graph_path`, resolved relative to `data_root`.
-- Grid datasets may additionally define `grid_mask` and `coord` inside the `.npz` file.
+- Sequence datasets use BasicTS-style directories rooted at `dataset/<dataset_name>/` with `meta.json`, `train/val/test_data.npy`, optional `*_timestamps.npy`, and optional `adj_mx.pkl`.
+- Grid datasets keep `data.npz` plus optional `grid_mask.npy` / `coord.npy`, but still require `meta.json` with `split_lengths`.
+- Dataset facts come from directory-local `meta.json`, not from a central catalog.
 - Sliding-window split logic belongs in `DataInterface`, not in model-specific loaders.
 
 ### Task Layer

@@ -1,10 +1,6 @@
 data:
   hist_len: 96
   pred_len: 96
-  norm_time_feature: false
-  time_feature_cls:
-    - tod
-    - dow
   precompute_window_index: false
 train:
   max_epochs: 30
