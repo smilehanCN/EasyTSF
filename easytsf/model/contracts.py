@@ -10,11 +10,16 @@ _SIDE_INPUT_FLAGS = {
 }
 
 
+def _normalize_feature_name(name):
+    return str(name).strip().lower()
+
+
 @dataclass(frozen=True)
 class ModelContract:
     model_name: str
     supported_task_names: tuple[str, ...]
     required_side_inputs: tuple[str, ...] = ()
+    required_time_features: tuple[str, ...] = ()
     maintenance_tier: str = "maintained"
     note: str = ""
 
@@ -50,12 +55,32 @@ class ModelContract:
                 )
             )
 
+        available_time_features = ()
+        if data_spec is not None:
+            available_time_features = tuple(
+                _normalize_feature_name(item) for item in getattr(data_spec, "time_feature_descriptions", ())
+            )
+        missing_time_features = []
+        for feature_name in self.required_time_features:
+            if _normalize_feature_name(feature_name) not in available_time_features:
+                missing_time_features.append(feature_name)
+        if missing_time_features:
+            raise ValueError(
+                "model '{}' requires time features {} for task '{}'; dataset provides {}".format(
+                    self.model_name,
+                    missing_time_features,
+                    task_name,
+                    list(getattr(data_spec, "time_feature_descriptions", ()) if data_spec is not None else ()),
+                )
+            )
+
 
 MODEL_CONTRACTS = {
     "SimpleMLP": ModelContract("SimpleMLP", ("mtsf",)),
     "iTransformer": ModelContract("iTransformer", ("mtsf",)),
     "MOMENT": ModelContract("MOMENT", ("mtsf",)),
     "CoRA": ModelContract("CoRA", ("mtsf",)),
+    "TQNet": ModelContract("TQNet", ("mtsf",), required_time_features=("time of day",)),
     "SimpleGraphMLP": ModelContract("SimpleGraphMLP", ("stf",), required_side_inputs=("graph",)),
     "STGCN": ModelContract("STGCN", ("stf",), required_side_inputs=("graph",)),
     "CoRAGraph": ModelContract("CoRAGraph", ("stf",), required_side_inputs=("graph",)),

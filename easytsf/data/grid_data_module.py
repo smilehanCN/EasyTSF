@@ -43,6 +43,7 @@ class GridDataInterface(BaseDataInterface):
         self.spatial_ndim = None
         self.variable = None
         self.time_feature = None
+        self.time_feature_descriptions = ()
         super().__init__(**kwargs)
 
     def _setup_dataset(self):
@@ -118,6 +119,7 @@ class GridDataInterface(BaseDataInterface):
 
         self._record_resolved_conf("split_lengths", split_lengths, "grid dataset meta", validate_keys=("data_split", "split_lengths"))
         self._record_resolved_conf("time_feature_dim", int(self.time_feature.shape[-1]), "grid dataset timestamps")
+        self._record_resolved_conf("time_feature_descriptions", tuple(self.time_feature_descriptions), "grid dataset layout")
         self._record_resolved_conf("has_graph", False, "grid dataset layout")
 
     def _build_data_spec(self):
@@ -131,6 +133,7 @@ class GridDataInterface(BaseDataInterface):
             has_grid_mask=self.grid_mask is not None,
             has_coord=self.coord is not None,
             time_feature_dim=time_feature_dim,
+            time_feature_descriptions=tuple(self.time_feature_descriptions),
         )
 
     def _split_bounds(self):

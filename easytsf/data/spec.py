@@ -13,3 +13,4 @@ class DataSpec:
     has_grid_mask: bool
     has_coord: bool
     time_feature_dim: int
+    time_feature_descriptions: tuple[str, ...] = ()

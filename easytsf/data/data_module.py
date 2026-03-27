@@ -25,6 +25,7 @@ class DataInterface(BaseDataInterface):
     def _setup_dataset(self):
         self.split_variable = {}
         self.split_time_feature = {}
+        self.time_feature_descriptions = ()
         split_lengths = []
         timestamp_presence = []
         timestamp_descriptions = load_timestamp_descriptions(self.meta)
@@ -124,9 +125,12 @@ class DataInterface(BaseDataInterface):
 
         if not any(timestamp_presence):
             expected_timestamp_dim = 0
+            self.time_feature_descriptions = ()
             for split_name in SPLIT_NAMES:
                 split_length = int(len(self.split_variable[split_name]))
                 self.split_time_feature[split_name] = np.empty((split_length, 0), dtype=np.float32)
+        else:
+            self.time_feature_descriptions = tuple(timestamp_descriptions)
 
         meta_num_vars = self.meta.get("num_vars")
         if meta_num_vars is not None and int(meta_num_vars) != expected_var_num:
@@ -154,6 +158,11 @@ class DataInterface(BaseDataInterface):
         self._record_resolved_conf("var_num", self.var_num, "dataset files/meta")
         self._record_resolved_conf("split_lengths", split_lengths, "dataset split files", validate_keys=("data_split", "split_lengths"))
         self._record_resolved_conf("time_feature_dim", self.time_feature_dim, "dataset timestamps/meta")
+        self._record_resolved_conf(
+            "time_feature_descriptions",
+            tuple(self.time_feature_descriptions),
+            "dataset timestamps/meta",
+        )
         self._record_resolved_conf("has_graph", self.graph is not None, "dataset graph side input")
 
     def _read_graph(self):
@@ -182,6 +191,7 @@ class DataInterface(BaseDataInterface):
             has_grid_mask=False,
             has_coord=False,
             time_feature_dim=int(self.time_feature_dim),
+            time_feature_descriptions=tuple(self.time_feature_descriptions),
         )
 
     def _build_split_dataset(self, split_name):

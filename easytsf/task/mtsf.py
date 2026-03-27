@@ -62,9 +62,13 @@ class MTSFTask(L.LightningModule):
         return model_cls(**model_args)
 
     def forward(self, batch, batch_idx):
-        var_x, marker_x, var_y, _ = self._prepare_batch(batch)
+        var_x, marker_x, var_y, marker_y = self._prepare_batch(batch)
         label = var_y[:, -self.hparams.pred_len:, :]
-        prediction = self.model(var_x, marker_x)
+        future_marker_forward = getattr(self.model, "forward_with_future_markers", None)
+        if callable(future_marker_forward):
+            prediction = future_marker_forward(var_x, marker_x, marker_y)
+        else:
+            prediction = self.model(var_x, marker_x)
         return prediction, label
 
     def training_step(self, batch, batch_idx):

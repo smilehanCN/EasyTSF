@@ -466,6 +466,164 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
             prediction, label = experiment.task.forward(batch, 0)
             self.assertEqual(tuple(prediction.shape), tuple(label.shape))
 
+    def test_tqnet_supports_forward_and_training_step_with_future_markers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(28 * 4, dtype=np.float32).reshape(28, 4)
+            self._write_sequence_dataset(tmpdir, "tqnet_case", variable)
+
+            conf = self._make_conf(
+                tmpdir,
+                dataset_name="tqnet_case",
+                model_name="TQNet",
+                task_name="mtsf",
+                var_num=4,
+                hist_len=4,
+                pred_len=2,
+                extra_model_kwargs={
+                    "cycle": 24,
+                    "cycle_feature_name": "time of day",
+                    "d_model": 8,
+                    "dropout": 0.0,
+                    "use_revin": True,
+                    "use_tq": True,
+                    "channel_aggre": True,
+                    "channel_aggre_heads": 4,
+                },
+            )
+            experiment = build_experiment(conf, training=False)
+            self.assertEqual(experiment.conf["time_feature_descriptions"], ("time of day", "day of week"))
+            batch = next(iter(experiment.datamodule.val_dataloader()))
+
+            prediction, label = experiment.task.forward(batch, 0)
+            self.assertEqual(tuple(prediction.shape), (2, 2, 4))
+            self.assertEqual(tuple(prediction.shape), tuple(label.shape))
+            loss = self._run_training_step_without_trainer(experiment.task, batch)
+            self._assert_scalar_loss(loss)
+
+    def test_tqnet_uses_future_marker_anchor_for_cycle_index(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(28 * 4, dtype=np.float32).reshape(28, 4)
+            self._write_sequence_dataset(tmpdir, "tqnet_cycle_case", variable)
+
+            conf = self._make_conf(
+                tmpdir,
+                dataset_name="tqnet_cycle_case",
+                model_name="TQNet",
+                task_name="mtsf",
+                var_num=4,
+                hist_len=4,
+                pred_len=2,
+                extra_model_kwargs={
+                    "cycle": 24,
+                    "cycle_feature_name": "time of day",
+                    "d_model": 8,
+                    "dropout": 0.0,
+                    "use_revin": True,
+                    "use_tq": True,
+                    "channel_aggre": True,
+                    "channel_aggre_heads": 4,
+                },
+            )
+            experiment = build_experiment(conf, training=False)
+            batch = next(iter(experiment.datamodule.val_dataloader()))
+            _, marker_x, _, marker_y = experiment.task._prepare_batch(batch)
+
+            cycle_index = experiment.task.model._extract_cycle_index(marker_y)
+            self.assertTrue(torch.equal(cycle_index, marker_y[:, 0, 0].round().long()))
+            self.assertTrue(torch.any(cycle_index != marker_x[:, -1, 0].round().long()).item())
+
+    def test_tqnet_requires_timestamps(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(28 * 4, dtype=np.float32).reshape(28, 4)
+            self._write_sequence_dataset(tmpdir, "tqnet_no_ts", variable, include_timestamps=False)
+
+            conf = self._make_conf(
+                tmpdir,
+                dataset_name="tqnet_no_ts",
+                model_name="TQNet",
+                task_name="mtsf",
+                var_num=4,
+                hist_len=4,
+                pred_len=2,
+                extra_model_kwargs={
+                    "cycle": 24,
+                    "cycle_feature_name": "time of day",
+                    "d_model": 8,
+                    "dropout": 0.0,
+                    "use_revin": True,
+                    "use_tq": True,
+                    "channel_aggre": True,
+                    "channel_aggre_heads": 4,
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "requires time features"):
+                build_experiment(conf, training=False)
+
+    def test_tqnet_requires_time_of_day_feature(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            variable = np.arange(28 * 4, dtype=np.float32).reshape(28, 4)
+            self._write_sequence_dataset(
+                tmpdir,
+                "tqnet_missing_tod",
+                variable,
+                descriptions=("day of week",),
+            )
+
+            conf = self._make_conf(
+                tmpdir,
+                dataset_name="tqnet_missing_tod",
+                model_name="TQNet",
+                task_name="mtsf",
+                var_num=4,
+                hist_len=4,
+                pred_len=2,
+                extra_model_kwargs={
+                    "cycle": 24,
+                    "cycle_feature_name": "time of day",
+                    "d_model": 8,
+                    "dropout": 0.0,
+                    "use_revin": True,
+                    "use_tq": True,
+                    "channel_aggre": True,
+                    "channel_aggre_heads": 4,
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "time of day"):
+                build_experiment(conf, training=False)
+
+    def test_tqnet_experiment_presets_load(self):
+        expected = {
+            "tqnet/etth1": ("TQNet", "mtsf", "ETTh1"),
+            "tqnet/weather": ("TQNet", "mtsf", "Weather"),
+            "tqnet/traffic": ("TQNet", "mtsf", "Traffic"),
+            "tqnet/ecl": ("TQNet", "mtsf", "ECL"),
+        }
+
+        for config_ref, (model_name, task_name, dataset_name) in expected.items():
+            conf = load_config(config_ref)
+            self.assertEqual(conf["model_name"], model_name)
+            self.assertEqual(conf["task_name"], task_name)
+            self.assertEqual(conf["dataset_name"], dataset_name)
+
+    def test_tqnet_study_dry_run_expands_cases(self):
+        result = run_study(
+            "tqnet/core",
+            runtime_overrides={
+                "data_root": "dataset",
+                "save_root": "save",
+                "accelerator": "cpu",
+                "devices": 1,
+                "use_wandb": 0,
+            },
+            dry_run=True,
+        )
+
+        self.assertEqual(result["study_name"], "tqnet_core")
+        self.assertEqual(result["run_count"], 15)
+        self.assertEqual(result["rows"], [])
+        self.assertIsNone(result["runs_path"])
+        self.assertIsNone(result["summary_path"])
+
     def test_simple_graph_mlp_supports_forward_and_training_step(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             variable = np.arange(28 * 4, dtype=np.float32).reshape(28, 4)

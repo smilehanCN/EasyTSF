@@ -1,0 +1,28 @@
+name: tqnet_core
+seeds: [0, 1, 2]
+cases:
+  - experiment: tqnet/etth1
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 96
+  - experiment: tqnet/etth1
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 336
+  - experiment: tqnet/weather
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 96
+  - experiment: tqnet/traffic
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 96
+  - experiment: tqnet/ecl
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 96
