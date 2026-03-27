@@ -1,8 +1,0 @@
-name: moment_core
-seeds: [0]
-cases:
-  - experiment: moment/etth1
-    overrides:
-      data:
-        hist_len: 96
-        pred_len: 96

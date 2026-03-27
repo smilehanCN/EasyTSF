@@ -1,4 +1,0 @@
-name: coragraph_core
-seeds: [0]
-cases:
-  - experiment: coragraph/pems03
