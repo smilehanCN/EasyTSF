@@ -1,23 +1,29 @@
-# EasyTSFNext
+# EasyTSF
 
-EasyTSFNext 是一个面向科研 idea 快速验证的轻量时序预测仓库。当前核心目标很明确：
+EasyTSF 是一个面向时序预测研究与 idea 快速验证的实验框架，重点解决“模型接入快、单实验调试快、批量 benchmark 组织清晰”这三件事。
 
-- 快速实现一个新模型
-- 快速跑单实验调试
-- 快速做多数据集、多 horizon、多 seed 的批量 benchmark
+它适合在统一流程下处理多种常见时序建模场景：
 
-项目结构围绕几类边界清晰的术语组织：
+- 多变量时序
+- 静态图时空序列
+- 2D 规则网格时序
+- 3D 规则网格时序
+
+它主要帮助你更低成本地完成这些工作：
+
+- 快速实现或复现模型
+- 快速跑通单实验并调试训练流程
+- 快速开展多数据集、多 horizon、多 seed 的批量 benchmark
+
+仓库围绕几类核心抽象组织：
 
 - `model`：模型实现
 - `task`：问题级训练封装
 - `experiment`：单实验配方
 - `study`：批量 benchmark 声明
-- `workflow`：运行这些配置和任务的流程层
-
-包内分层采用“领域主干 + workflow 流程层”的方式，不追求重工程化，不引入多任务注册器、复杂校验体系或完整测试矩阵。
+- `workflow`：负责把 `experiment` 和 `study` 跑起来的流程层
 
 ## 当前结构
-
 - `train.py`：单实验训练入口；传入 `--param_space` 时执行 Ray Tune 搜索
 - `evaluate.py`：单实验评估入口；支持 `best`、`last` 或显式 checkpoint 路径
 - `study.py`：批量科研入口；编排多个 `experiment` 并汇总多 seed 结果
@@ -429,3 +435,4 @@ python scripts/migrate_sequence_dataset_to_basicts.py --data_root dataset --data
 4. 在 `config/experiments/<model_id>/` 下为常用数据集新增 preset。
 
 模型文件名统一全小写，一个模型只占一个文件。如果只是模型私有逻辑，就放在该模型文件内部，不要急于抽新的公共层。
+
