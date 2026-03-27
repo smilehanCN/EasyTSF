@@ -83,7 +83,7 @@ class Model(nn.Module):
 
     def _extract_cycle_index(self, marker_y):
         if marker_y is None:
-            raise ValueError("TQNet requires future markers to derive cycle_index")
+            raise ValueError("TQNet requires marker_y in forward(var_x, marker_x, marker_y) to derive cycle_index")
         if marker_y.ndim != 3:
             raise ValueError("TQNet expects marker_y as [B, pred_len, T], but received shape {}".format(tuple(marker_y.shape)))
         if marker_y.shape[1] <= 0:
@@ -127,11 +127,7 @@ class Model(nn.Module):
             output = output * torch.sqrt(seq_var) + seq_mean
         return output
 
-    def forward(self, var_x, marker_x):
-        del var_x, marker_x
-        raise RuntimeError("TQNet requires future markers and must be called via forward_with_future_markers")
-
-    def forward_with_future_markers(self, var_x, marker_x, marker_y):
+    def forward(self, var_x, marker_x, marker_y):
         del marker_x
         cycle_index = self._extract_cycle_index(marker_y)
         output = self._forecast(var_x, cycle_index)

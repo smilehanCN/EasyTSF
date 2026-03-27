@@ -209,7 +209,7 @@ python train.py -c coragrid/grid3d_demo -d dataset -s save --seed 0
 
 它们都不是“实验配置”，也不是“批量 benchmark 声明”，而是问题设定本身的训练语义承载点：
 
-- `MTSFTask` 对应标准多元时序预测，模型接口是 `forward(var_x, marker_x)`。
+- `MTSFTask` 对应标准多元时序预测，模型接口是 `forward(var_x, marker_x, marker_y)`。
 - `STFTask` 对应静态图时空预测，模型接口是 `forward(var_x, marker_x, graph)`。
 - `Grid2DTSFTask` 对应 2D 规则网格时空预测，模型接口是 `forward(var_x, marker_x, grid_mask=None, coord=None)`，标签形态为 `[B, pred_len, C, H, W]`。
 - `Grid3DTSFTask` 对应 3D 规则网格时空预测，模型接口是 `forward(var_x, marker_x, grid_mask=None, coord=None)`，标签形态为 `[B, pred_len, C, X, Y, Z]`。
@@ -424,7 +424,7 @@ python scripts/migrate_sequence_dataset_to_basicts.py --data_root dataset --data
 
 1. 在 `easytsf/model/<model_id>.py` 中定义主类 `Model`。
 2. 按所属 task 实现前向接口：
-   - `mtsf` 模型：`forward(var_x, marker_x)`
+   - `mtsf` 模型：`forward(var_x, marker_x, marker_y)`
    - `stf` 模型：`forward(var_x, marker_x, graph)`
    - `grid2dtsf` 模型：`forward(var_x, marker_x, grid_mask=None, coord=None)`
    - `grid3dtsf` 模型：`forward(var_x, marker_x, grid_mask=None, coord=None)`
@@ -435,4 +435,3 @@ python scripts/migrate_sequence_dataset_to_basicts.py --data_root dataset --data
 4. 在 `config/experiments/<model_id>/` 下为常用数据集新增 preset。
 
 模型文件名统一全小写，一个模型只占一个文件。如果只是模型私有逻辑，就放在该模型文件内部，不要急于抽新的公共层。
-

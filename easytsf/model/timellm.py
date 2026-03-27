@@ -205,7 +205,8 @@ class Model(nn.Module):
         self.output_projection = FlattenHead(var_num, self.head_nf, self.pred_len, head_dropout=dropout)
         self.normalize_layers = Normalize(var_num, affine=False)
 
-    def forward(self, var_x, marker_x):
+    def forward(self, var_x, marker_x, marker_y):
+        del marker_x, marker_y
         x_enc = var_x[..., 0]
         x_enc = self.normalize_layers(x_enc, 'norm')
         B, T, N = x_enc.size()

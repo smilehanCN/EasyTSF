@@ -53,7 +53,8 @@ class Model(nn.Module):
         nn.init.xavier_uniform_(self.tod_emb)
         nn.init.xavier_uniform_(self.dow_emb)
 
-    def forward(self, var_x, marker_x):
+    def forward(self, var_x, marker_x, marker_y):
+        del marker_y
         B, L, N = var_x.shape
         hidden = self.ts_emb_layer(var_x)
 

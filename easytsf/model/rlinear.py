@@ -67,7 +67,8 @@ class Model(nn.Module):
         self.dropout = nn.Dropout(drop)
         self.rev = RevIN(var_num) if rev else None
 
-    def forward(self, var_x, marker_x):
+    def forward(self, var_x, marker_x, marker_y):
+        del marker_x, marker_y
         var_x = var_x[..., 0]  # x: [B, L, D]
         var_x = self.rev(var_x, 'norm') if self.rev else var_x
         var_x = self.dropout(var_x)

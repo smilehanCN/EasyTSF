@@ -31,7 +31,8 @@ class Model(nn.Module):
             )
 
 
-    def forward(self, var_x, marker_x):
+    def forward(self, var_x, marker_x, marker_y):
+        del marker_x, marker_y
         batch_size = var_x.shape[0]
         # normalization and permute     b,s,c -> b,c,s
         seq_mean = torch.mean(var_x, dim=1).unsqueeze(1)

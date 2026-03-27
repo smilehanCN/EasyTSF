@@ -431,6 +431,9 @@ class SmokeMLPSupportTestCase(unittest.TestCase):
             batch = next(iter(experiment.datamodule.val_dataloader()))
             prediction, label = experiment.task.forward(batch, 0)
             self.assertEqual(tuple(prediction.shape), tuple(label.shape))
+            var_x, marker_x, _, marker_y = experiment.task._prepare_batch(batch)
+            direct_prediction = experiment.task.model(var_x, marker_x, marker_y)
+            self.assertEqual(tuple(direct_prediction.shape), tuple(label.shape))
 
     def test_basic_ts_markers_drive_stid_discrete_embeddings(self):
         with tempfile.TemporaryDirectory() as tmpdir:

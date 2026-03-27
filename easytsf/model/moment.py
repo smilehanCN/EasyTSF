@@ -26,6 +26,6 @@ class Model(nn.Module):
             error_prefix="MOMENT support",
         )
 
-    def forward(self, var_x, marker_x):
-        del marker_x
+    def forward(self, var_x, marker_x, marker_y):
+        del marker_x, marker_y
         return self.model.forecast(var_x)

@@ -257,8 +257,8 @@ class Model(nn.Module):
             param_groups.append({"params": plugin_params, "lr": self.plugin_lr or default_lr})
         return param_groups
 
-    def forward(self, var_x, marker_x):
-        del marker_x
+    def forward(self, var_x, marker_x, marker_y):
+        del marker_x, marker_y
         output, embedding = self.fm.forecast_for_plugin(var_x)
         embedding = self.dropout(embedding)
         ts_patch = var_x.unfold(1, self.patch_size, self.stride)
