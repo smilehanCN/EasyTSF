@@ -22,5 +22,5 @@ runtime:
   pin_memory: null
   persistent_workers: null
   prefetch_factor: 2
-  use_mmap: false
+  use_mmap: true
   cache_npz_as_npy: null

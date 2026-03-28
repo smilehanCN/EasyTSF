@@ -1,5 +1,7 @@
 import numpy as np
 
+from easytsf.scaler import fit_zscore_stats
+
 from .base import (
     BaseDataInterface,
     BasicTSSequenceDataset,
@@ -21,11 +23,54 @@ def _split_timestamp_file_name(split_name):
     return "{}_timestamps.npy".format(split_name)
 
 
+def _serialize_stat_value(value):
+    if isinstance(value, np.ndarray):
+        return value.astype(np.float32, copy=False).tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
 class DataInterface(BaseDataInterface):
+    def _load_regular_settings(self):
+        regular_settings = self.meta.get("regular_settings")
+        if not isinstance(regular_settings, dict):
+            raise ValueError("sequence dataset meta must define regular_settings as a mapping: {}".format(self.meta_path))
+
+        required_keys = ("norm_each_channel", "rescale", "null_val")
+        missing_keys = [key for key in required_keys if key not in regular_settings]
+        if missing_keys:
+            raise ValueError(
+                "sequence dataset regular_settings must define {} for {}".format(
+                    missing_keys,
+                    self.meta_path,
+                )
+            )
+
+        self.norm_each_channel = bool(regular_settings["norm_each_channel"])
+        self.rescale = bool(regular_settings["rescale"])
+        self.null_val = regular_settings["null_val"]
+
+    def _build_scaler_stats(self):
+        train_variable = self.split_variable["train"]
+        mean, std = fit_zscore_stats(
+            train_variable,
+            null_val=self.null_val,
+            norm_each_channel=self.norm_each_channel,
+        )
+        self.scaler_stats = {
+            "mean": np.asarray(mean, dtype=np.float32),
+            "std": np.asarray(std, dtype=np.float32),
+        }
+
     def _setup_dataset(self):
         self.split_variable = {}
         self.split_time_feature = {}
         self.time_feature_descriptions = ()
+        self.scaler_stats = None
+        self.norm_each_channel = None
+        self.rescale = False
+        self.null_val = None
         split_lengths = []
         timestamp_presence = []
         timestamp_descriptions = load_timestamp_descriptions(self.meta)
@@ -144,6 +189,8 @@ class DataInterface(BaseDataInterface):
 
         self.var_num = int(expected_var_num)
         self.time_feature_dim = int(expected_timestamp_dim)
+        self._load_regular_settings()
+        self._build_scaler_stats()
         self.graph = self._read_graph()
         meta_has_graph = self.meta.get("has_graph")
         if meta_has_graph is not None and bool(meta_has_graph) != bool(self.graph is not None):
@@ -164,6 +211,17 @@ class DataInterface(BaseDataInterface):
             "dataset timestamps/meta",
         )
         self._record_resolved_conf("has_graph", self.graph is not None, "dataset graph side input")
+        self._record_resolved_conf("norm_each_channel", self.norm_each_channel, "dataset regular_settings")
+        self._record_resolved_conf("rescale", self.rescale, "dataset regular_settings")
+        self._record_resolved_conf("null_val", self.null_val, "dataset regular_settings")
+        self._record_resolved_conf(
+            "scaler_stats",
+            {
+                "mean": _serialize_stat_value(self.scaler_stats["mean"]),
+                "std": _serialize_stat_value(self.scaler_stats["std"]),
+            },
+            "dataset train split stats",
+        )
 
     def _read_graph(self):
         if self.graph_path is None:

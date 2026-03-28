@@ -1,0 +1,25 @@
+model:
+  model_name: TQNet
+  cycle: 168
+  cycle_feature_name: 'time of week'
+  d_model: 512
+  dropout: 0.0
+  use_revin: true
+  use_tq: true
+  channel_aggre: true
+  channel_aggre_heads: 4
+data:
+  dataset_name: Electricity
+  hist_len: 96
+  pred_len: 96
+train:
+  batch_size: 32
+  max_epochs: 30
+  lr: 0.003
+  lr_scheduler: CycleNetLRS
+  es_patience: 5
+  optimizer: Adam
+  gradient_clip_val: 0.0
+  use_mix_loss: false
+runtime:
+  task_name: mtsf

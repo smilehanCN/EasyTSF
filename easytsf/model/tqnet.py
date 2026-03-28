@@ -49,14 +49,44 @@ class Model(nn.Module):
 
         normalized_descriptions = tuple(_normalize_feature_name(item) for item in (time_feature_descriptions or ()))
         normalized_cycle_feature = _normalize_feature_name(self.cycle_feature_name)
-        if normalized_cycle_feature not in normalized_descriptions:
+        self.cycle_feature_key = normalized_cycle_feature
+        self.cycle_feature_idx = None
+        self.time_of_day_idx = None
+        self.day_of_week_idx = None
+
+        if self.cycle_feature_key == "time of day":
+            if self.cycle_feature_key not in normalized_descriptions:
+                raise ValueError(
+                    "TQNet requires time_feature_descriptions to include '{}', but received {}".format(
+                        self.cycle_feature_name,
+                        list(time_feature_descriptions or ()),
+                    )
+                )
+            self.cycle_feature_idx = normalized_descriptions.index(self.cycle_feature_key)
+            self.time_of_day_idx = self.cycle_feature_idx
+        elif self.cycle_feature_key == "time of week":
+            if self.cycle_len % 7 != 0:
+                raise ValueError(
+                    "TQNet requires cycle {} to be divisible by 7 when cycle_feature_name is 'time of week'".format(
+                        self.cycle_len,
+                    )
+                )
+            if "time of day" not in normalized_descriptions or "day of week" not in normalized_descriptions:
+                raise ValueError(
+                    "TQNet requires time_feature_descriptions to include both 'time of day' and 'day of week' "
+                    "when cycle_feature_name is 'time of week', but received {}".format(
+                        list(time_feature_descriptions or ()),
+                    )
+                )
+            self.time_of_day_idx = normalized_descriptions.index("time of day")
+            self.day_of_week_idx = normalized_descriptions.index("day of week")
+            self.cycle_feature_idx = self.time_of_day_idx
+        else:
             raise ValueError(
-                "TQNet requires time_feature_descriptions to include '{}', but received {}".format(
+                "TQNet only supports cycle_feature_name 'time of day' or 'time of week', but received '{}'".format(
                     self.cycle_feature_name,
-                    list(time_feature_descriptions or ()),
                 )
             )
-        self.cycle_feature_idx = normalized_descriptions.index(normalized_cycle_feature)
 
         if self.use_tq:
             self.temporalQuery = torch.nn.Parameter(torch.zeros(self.cycle_len, self.enc_in), requires_grad=True)
@@ -95,7 +125,19 @@ class Model(nn.Module):
                     tuple(marker_y.shape),
                 )
             )
-        cycle_index = marker_y[:, 0, self.cycle_feature_idx].round().long()
+        if self.cycle_feature_key == "time of day":
+            cycle_index = marker_y[:, 0, self.cycle_feature_idx].round().long()
+        else:
+            if marker_y.shape[2] <= self.day_of_week_idx:
+                raise ValueError(
+                    "TQNet requires marker_y feature dimension > {}, but received shape {}".format(
+                        self.day_of_week_idx,
+                        tuple(marker_y.shape),
+                    )
+                )
+            time_of_day = marker_y[:, 0, self.time_of_day_idx].round().long()
+            day_of_week = marker_y[:, 0, self.day_of_week_idx].round().long()
+            cycle_index = day_of_week * (self.cycle_len // 7) + time_of_day
         return cycle_index % self.cycle_len
 
     def _forecast(self, x, cycle_index):

@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import pickle
 from collections.abc import Mapping, Sequence
@@ -360,12 +361,17 @@ class BasicTSSequenceDataset(Dataset):
 def _normalize_compare_value(value):
     if isinstance(value, np.ndarray):
         return value.tolist()
+    if isinstance(value, float) and math.isnan(value):
+        return "__nan__"
     if isinstance(value, tuple):
         return [_normalize_compare_value(item) for item in value]
     if isinstance(value, list):
         return [_normalize_compare_value(item) for item in value]
     if isinstance(value, np.generic):
-        return value.item()
+        item = value.item()
+        if isinstance(item, float) and math.isnan(item):
+            return "__nan__"
+        return item
     return value
 
 

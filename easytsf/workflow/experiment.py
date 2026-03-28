@@ -441,7 +441,9 @@ def build_experiment(conf, training=True):
     if datamodule.data_spec.spatial_ndim:
         finalized_conf["spatial_ndim"] = int(datamodule.data_spec.spatial_ndim)
     finalized_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader()))
-    task = task_entry.task_cls(**task_entry.build_task_kwargs(datamodule), **finalized_conf)
+    task_kwargs = dict(finalized_conf)
+    task_kwargs.update(task_entry.build_task_kwargs(datamodule))
+    task = task_entry.task_cls(**task_kwargs)
     trainer = L.Trainer(
         accelerator=finalized_conf["accelerator"],
         devices=finalized_conf["devices"],

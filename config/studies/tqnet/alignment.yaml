@@ -1,0 +1,43 @@
+name: tqnet_alignment
+seeds: [2024]
+cases:
+  - experiment: tqnet/electricity
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 96
+  - experiment: tqnet/electricity
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 192
+  - experiment: tqnet/electricity
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 336
+  - experiment: tqnet/electricity
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 720
+  - experiment: tqnet/pems03
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 12
+  - experiment: tqnet/pems03
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 24
+  - experiment: tqnet/pems03
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 48
+  - experiment: tqnet/pems03
+    overrides:
+      data:
+        hist_len: 96
+        pred_len: 96

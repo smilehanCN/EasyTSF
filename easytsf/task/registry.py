@@ -72,14 +72,14 @@ TASK_REGISTRY = {
         datamodule_cls=DataInterface,
         task_cls=MTSFTask,
         expected_layout_kind="sequence",
+        task_init_side_inputs=("scaler_stats",),
     ),
     "stf": TaskRegistryEntry(
         task_name="stf",
         datamodule_cls=DataInterface,
         task_cls=STFTask,
         expected_layout_kind="sequence",
-        task_init_side_inputs=("graph",),
-        required_side_inputs=("graph",),
+        task_init_side_inputs=("graph", "scaler_stats"),
     ),
     "grid2dtsf": TaskRegistryEntry(
         task_name="grid2dtsf",

@@ -35,6 +35,10 @@ class ConfigContractsTestCase(unittest.TestCase):
     def test_gridstf_registry_entry_is_marked_experimental(self):
         self.assertEqual(get_task_registry_entry("gridstf").stability, "experimental")
 
+    def test_stf_registry_entry_no_longer_requires_graph(self):
+        self.assertEqual(get_task_registry_entry("stf").required_side_inputs, ())
+        self.assertIn("stf", get_model_contract("iTransformer").supported_task_names)
+
     def test_easytsf_data_public_exports_remain_available(self):
         self.assertIsNotNone(DataInterface)
         self.assertIsNotNone(GridDataInterface)

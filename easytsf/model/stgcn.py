@@ -44,8 +44,13 @@ class STGCNBlock(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, hist_len, pred_len, hidden_dim, block_num=2, kernel_size=3, dropout=0.1):
+    def __init__(self, hist_len, pred_len, hidden_dim, block_num=2, kernel_size=3, dropout=0.1, graph=None):
         super().__init__()
+        if graph is None:
+            raise ValueError("STGCN requires graph during initialization")
+        graph = torch.as_tensor(graph, dtype=torch.float32)
+        if graph.ndim != 2 or graph.shape[0] != graph.shape[1]:
+            raise ValueError("STGCN graph must be a square matrix, but received shape {}".format(tuple(graph.shape)))
         self.hist_len = hist_len
         self.pred_len = pred_len
         self.input_proj = nn.Conv2d(1, hidden_dim, kernel_size=(1, 1))
@@ -55,32 +60,24 @@ class Model(nn.Module):
         )
         self.output_proj = nn.Conv2d(hidden_dim, 1, kernel_size=(1, 1))
         self.time_proj = nn.Linear(hist_len, pred_len)
-        self._cached_support = None
-        self._cached_support_key = None
+        self.register_buffer("graph", graph, persistent=False)
+        self.register_buffer("support", self._get_normalized_support(graph), persistent=False)
 
-    def _get_normalized_support(self, graph):
-        cache_key = (graph.device.type, graph.device.index, graph.dtype, tuple(graph.shape))
-        if self._cached_support is not None and self._cached_support_key == cache_key:
-            return self._cached_support
-
+    @staticmethod
+    def _get_normalized_support(graph):
         identity = torch.eye(graph.size(0), device=graph.device, dtype=graph.dtype)
         support = graph + identity
         degree = support.sum(dim=-1).clamp_min(1e-6)
         inv_sqrt_degree = degree.pow(-0.5)
-        support = inv_sqrt_degree.unsqueeze(-1) * support * inv_sqrt_degree.unsqueeze(-2)
+        return inv_sqrt_degree.unsqueeze(-1) * support * inv_sqrt_degree.unsqueeze(-2)
 
-        self._cached_support = support
-        self._cached_support_key = cache_key
-        return support
-
-    def forward(self, var_x, marker_x, graph):
-        del marker_x
-        support = self._get_normalized_support(graph)
+    def forward(self, var_x, marker_x, marker_y):
+        del marker_x, marker_y
         x = var_x.transpose(1, 2).unsqueeze(1)
         x = self.input_proj(x)
 
         for block in self.blocks:
-            x = block(x, support)
+            x = block(x, self.support)
 
         x = self.output_proj(x).squeeze(1)
         prediction = self.time_proj(x)

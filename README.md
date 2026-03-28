@@ -42,7 +42,7 @@ EasyTSF 是一个面向时序预测研究与 idea 快速验证的实验框架，
 当前仓库正式维护四条主链路，覆盖 5 类常用 forecasting case：
 
 - `mtsf`：标准时序预测，输入核心形态是 `(L, N)`；单变量预测按 `(L, 1)` 处理，不接受裸 `(L,)`
-- `stf`：静态图时空预测，输入是 `(L, N)` 加一个静态 graph
+- `stf`：时空预测，输入核心形态仍是 `(L, N)`；可选静态 graph 在模型初始化阶段加载
 - `grid2dtsf`：2D 规则网格时空预测，输入是 `(L, C, H, W)`
 - `grid3dtsf`：3D 规则网格时空预测，输入是 `(L, C, X, Y, Z)`
 
@@ -51,7 +51,7 @@ EasyTSF 是一个面向时序预测研究与 idea 快速验证的实验框架，
 当前正式维护的模型集合由 `easytsf/model/contracts.py` 和 experiment preset 共同约束；当前 smoke 训练主要覆盖 Simple 系列 baseline，`iTransformer` 额外有前向校验：
 
 - `mtsf`：`SimpleMLP`、`iTransformer`、`MOMENT`、`CoRA`
-- `stf`：`SimpleGraphMLP`、`STGCN`、`CoRAGraph`
+- `stf`：兼容全部 `mtsf` 模型；图模型当前提供 `STGCN`
 - `grid2dtsf/grid3dtsf`：`SimpleGridMLP`、`CoRAGrid`
 
 其余历史模型仍保留在仓库里，但按 legacy 对待，不纳入默认 preset / maintained matrix 保障范围。
@@ -99,7 +99,6 @@ Simple MLP smoke baseline：
 ```shell
 python train.py -c simplemlp/pseudo -d dataset -s save --seed 0
 python train.py -c simplemlp/etth1 -d dataset -s save --seed 0
-python train.py -c simplegraphmlp/pems03 -d dataset -s save --seed 0
 python train.py -c simplegridmlp/grid2d_demo -d dataset -s save --seed 0
 python train.py -c simplegridmlp/grid3d_demo -d dataset -s save --seed 0
 python train.py -c simplegridmlp/windfield3d_demo -d dataset -s save --seed 0
@@ -170,10 +169,9 @@ CoRA 批量 benchmark：
 python study.py -s cora/core
 ```
 
-CoRAGraph / CoRAGrid 单实验训练：
+CoRAGrid 单实验训练：
 
 ```shell
-python train.py -c coragraph/pems03 -d dataset -s save --seed 0
 python train.py -c coragrid/grid2d_demo -d dataset -s save --seed 0
 python train.py -c coragrid/grid3d_demo -d dataset -s save --seed 0
 ```
@@ -351,10 +349,12 @@ YAML 只使用四个顶层 section：
 其中：
 
 - `meta.json` 至少负责 `name`、`frequency (minutes)`、`split_lengths`、`has_graph`
+- sequence 任务还会消费 `meta.json.regular_settings` 中的 `norm_each_channel`、`rescale`、`null_val`，并基于 `train_data.npy` 统计训练集 `mean/std` 做 BasicTS 风格 Z-score 标准化；其中 `rescale` 只决定评估指标计算前是否反标准化
+- `mtsf` 与 `stf` 现在共享同一套 sequence 前向契约：`model(var_x, marker_x, marker_y)`；因此 `mtsf` 模型可以直接在 `stf` 数据集上运行
 - 时间戳文件使用 BasicTS 风格的预处理特征，`DataInterface` 会按 `timestamps_description` 还原成当前模型接口使用的 marker 语义
-- graph side file 固定约定为 `adj_mx.pkl`，兼容 BasicTS 的 raw adjacency pickle 和 `(sensor_ids, sensor_id_to_ind, adj_mx)` tuple pickle
+- graph side file 固定约定为 `adj_mx.pkl`，兼容 BasicTS 的 raw adjacency pickle 和 `(sensor_ids, sensor_id_to_ind, adj_mx)` tuple pickle；graph-aware 模型会在初始化阶段读取它，非图模型会忽略它
 
-对于原生 grid 数据集，`scaled_variable` 的形状约定为：
+对于原生 grid 数据集，张量形状约定为：
 
 - 2D：`[L, C, H, W]`
 - 3D：`[L, C, X, Y, Z]`
@@ -364,10 +364,20 @@ grid 数据集的可选 side input 固定放在目录 side file 中：
 - `grid_mask.npy`：纯空间 mask，2D 为 `[H, W]`，3D 为 `[X, Y, Z]`
 - `coord.npy`：坐标通道在前，2D 为 `[2, H, W]`，3D 为 `[3, X, Y, Z]`
 
-旧版 flat `dataset/<dataset_name>.npz` 已不再兼容。额外文件会被忽略。`DataInterface` / `GridDataInterface` 负责：
+grid 数据目录布局分两类：
+
+- 2D grid：继续使用目录内单文件 `data.npz`
+- 3D grid：只支持 split-sharded 目录布局
+  - `train/manifest.json` + `train/timestamps.npy` + 若干 `train/*.npy`
+  - `val/...`
+  - `test/...`
+  - 每个 shard 固定表示 `5` 个时间步，张量形状为 `[t_chunk, C, X, Y, Z]`
+
+旧版 flat `dataset/<dataset_name>.npz` 已不再兼容。3D grid 也不再兼容单文件 `data.npz` 布局。额外文件会被忽略。`DataInterface` / `GridDataInterface` 负责：
 
 - 对 sequence 任务读取 `train/val/test_*.npy`
-- 对 grid 任务读取 `data.npz`
+- 对 2D grid 任务读取 `data.npz`
+- 对 3D grid 任务读取 `train/val/test` split shard
 - 从目录内 `meta.json` 解析频率、split 长度和 side input 事实
 - 按需读取 `adj_mx.pkl`
 - 按需读取 `grid_mask` 和 `coord`

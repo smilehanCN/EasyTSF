@@ -38,13 +38,12 @@ class _BaseGridTSFTask(MTSFTask):
                 )
             )
 
-    def forward(self, batch, batch_idx):
-        var_x, marker_x, var_y, _ = self._prepare_batch(batch)
+    def _validate_model_inputs(self, var_x):
         self._validate_grid_dim(var_x)
-        label = var_y[:, -self.hparams.pred_len:, ...]
-        prediction = self.model(var_x, marker_x, self.grid_mask, self.coord)
-        self._validate_prediction_shape(prediction, label)
-        return prediction, label
+
+    def _run_model(self, var_x, marker_x, marker_y):
+        del marker_y
+        return self.model(var_x, marker_x, self.grid_mask, self.coord)
 
 
 class Grid2DTSFTask(_BaseGridTSFTask):
