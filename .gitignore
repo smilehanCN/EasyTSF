@@ -184,3 +184,4 @@ config/private_*
 /script/
 /dataset/
 .DS_Store
+dataset
