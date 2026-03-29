@@ -1,27 +1,30 @@
 import csv
+import hashlib
+import json
+import math
 import statistics
 from pathlib import Path
 
-import yaml
-
-from .experiment import (
-    CONFIG_SECTIONS,
-    STUDY_CONFIG_DIR,
-    finalize_runtime_conf,
-    load_config,
-    load_saved_metrics,
-    run_training,
-    save_metrics,
-    save_resolved_config,
-)
+from .config import STUDY_CONFIG_DIR, _save_json, load_experiment_config, load_module_from_path
+from .experiment import _serialize_value, resolve_ckpt_path, run_experiment
+from .config import finalize_runtime_conf
 
 
-def _load_yaml(path):
-    with Path(path).open("r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle) or {}
-    if not isinstance(data, dict):
-        raise ValueError("study config must be a mapping: {}".format(path))
-    return data
+STUDY_ALLOWED_KEYS = {"name", "seeds", "search_config", "experiment", "param_space"}
+STUDY_SEARCH_CONFIG_DEFAULTS = {
+    "num_samples": 1,
+    "cpus_per_trial": 2,
+    "gpus_per_trial": 0.5,
+    "num_gpus": 0,
+}
+STUDY_SEARCH_ALLOWED_KEYS = set(STUDY_SEARCH_CONFIG_DEFAULTS)
+
+
+def _slug(value):
+    slug = "".join(char if char.isalnum() else "_" for char in str(value or "")).strip("_").lower()
+    if slug == "":
+        raise ValueError("cannot derive slug from empty value")
+    return slug
 
 
 def _resolve_study_path(study_ref):
@@ -30,83 +33,180 @@ def _resolve_study_path(study_ref):
         return ref_path.resolve()
 
     relative_ref = Path(study_ref)
-    if relative_ref.suffix not in {".yaml", ".yml"}:
-        relative_ref = relative_ref.with_suffix(".yaml")
+    if relative_ref.suffix != ".py":
+        relative_ref = relative_ref.with_suffix(".py")
     resolved_path = (STUDY_CONFIG_DIR / relative_ref).resolve()
     if resolved_path.exists():
         return resolved_path
     raise FileNotFoundError("study config not found: {}".format(study_ref))
 
 
-def _empty_section_map():
-    return {section: {} for section in CONFIG_SECTIONS}
+def _load_python_study(path):
+    module_hash = hashlib.md5(str(path).encode("utf-8")).hexdigest()[:10]
+    module = load_module_from_path("easytsf_study_{}".format(module_hash), str(path))
+    if not hasattr(module, "study"):
+        raise ValueError("study module must define study: {}".format(path))
+    return module.study
 
 
-def _normalize_case_overrides(data, source_name):
-    if data is None:
-        return _empty_section_map()
-    if not isinstance(data, dict):
-        raise ValueError("{} overrides must be a mapping".format(source_name))
+def _normalize_search_config(raw_search_config, study_path):
+    if raw_search_config is None:
+        raw_search_config = {}
+    if not isinstance(raw_search_config, dict):
+        raise ValueError("study search_config must be a mapping: {}".format(study_path))
+    unknown_keys = set(raw_search_config) - STUDY_SEARCH_ALLOWED_KEYS
+    if unknown_keys:
+        raise ValueError("unsupported search_config keys in {}: {}".format(study_path, sorted(unknown_keys)))
 
-    unknown_sections = set(data.keys()) - set(CONFIG_SECTIONS)
-    if unknown_sections:
-        raise ValueError("unsupported override sections in {}: {}".format(source_name, sorted(unknown_sections)))
+    search_config = {**STUDY_SEARCH_CONFIG_DEFAULTS, **raw_search_config}
+    search_config["num_samples"] = int(search_config["num_samples"])
+    search_config["cpus_per_trial"] = int(search_config["cpus_per_trial"])
+    search_config["gpus_per_trial"] = float(search_config["gpus_per_trial"])
+    search_config["num_gpus"] = int(search_config["num_gpus"])
+    return search_config
 
-    normalized = _empty_section_map()
-    for section in CONFIG_SECTIONS:
-        value = data.get(section, {})
-        if value is None:
-            value = {}
-        if not isinstance(value, dict):
-            raise ValueError("{} section '{}' must be a mapping".format(source_name, section))
-        normalized[section] = dict(value)
-    return normalized
+
+def _study_name_from_conf(conf):
+    return "{}_{}".format(_slug(conf["model_name"]), _slug(conf["dataset_name"]))
+
+
+def _build_study_dir(save_root, study_name):
+    return Path(save_root) / "studies" / study_name
+
+
+def _build_study_exp_dir(study_dir, conf_hash, seed):
+    return Path(study_dir) / conf_hash / "seed_{}".format(seed)
+
+
+def _build_study_artifact_paths(study_dir):
+    study_dir = Path(study_dir)
+    search_dir = study_dir / "search"
+    return {
+        "study_dir": study_dir,
+        "resolved_study_path": study_dir / "study.json",
+        "search_dir": search_dir,
+        "trial_report_path": search_dir / "trial_report.csv",
+        "best_trial_report_path": search_dir / "best_trial_report.csv",
+        "best_params_path": search_dir / "best_params.json",
+        "tune_meta_path": search_dir / "tune_meta.json",
+        "runs_path": study_dir / "runs.csv",
+        "summary_path": study_dir / "summary.csv",
+    }
+
+
+def _has_resumeable_search_artifacts(paths):
+    required_paths = [
+        paths["best_params_path"],
+        paths["trial_report_path"],
+        paths["best_trial_report_path"],
+    ]
+    return all(path.exists() for path in required_paths)
+
+
+def _extract_scalar_metric(value):
+    value = _serialize_value(value)
+    if value in {None, ""}:
+        return None
+    try:
+        value = float(value)
+        return None if math.isnan(value) else value
+    except (TypeError, ValueError):
+        return value
+
+
+def load_saved_metrics(conf):
+    path = Path(conf["exp_dir"]) / "metrics.csv"
+    if not path.exists():
+        return None
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        return None
+
+    def last_logged_value(name):
+        if not name:
+            return None
+        for row in reversed(rows):
+            value = row.get(name)
+            if value not in {None, ""}:
+                return _extract_scalar_metric(value)
+        return None
+
+    mae = last_logged_value("test/mae")
+    mse = last_logged_value("test/mse")
+    if mae is None and mse is None:
+        return None
+    try:
+        ckpt_path = resolve_ckpt_path(conf, "best")
+    except FileNotFoundError:
+        ckpt_path = None
+    return {
+        "task_name": conf.get("task_name", "mtsf"),
+        "model_name": conf["model_name"],
+        "dataset_name": conf["dataset_name"],
+        "hist_len": int(conf["hist_len"]),
+        "pred_len": int(conf["pred_len"]),
+        "seed": int(conf["seed"]),
+        "conf_hash": conf["conf_hash"],
+        "exp_dir": str(Path(conf["exp_dir"]).resolve()),
+        "ckpt_path": ckpt_path,
+        "status": "success",
+        "error": None,
+        "val_metric_name": conf.get("val_metric"),
+        "val_metric_value": last_logged_value(conf.get("val_metric")),
+        "mae": mae,
+        "mse": mse,
+    }
 
 
 def load_study(study_ref):
     study_path = _resolve_study_path(study_ref)
-    raw_conf = _load_yaml(study_path)
+    raw_conf = _load_python_study(study_path)
+    if not isinstance(raw_conf, dict):
+        raise ValueError("study config must be a mapping: {}".format(study_path))
 
-    study_name = raw_conf.get("name") or study_path.stem
+    unknown_keys = set(raw_conf) - STUDY_ALLOWED_KEYS
+    if unknown_keys:
+        raise ValueError("unsupported study keys in {}: {}".format(study_path, sorted(unknown_keys)))
+
+    experiment_ref = raw_conf.get("experiment")
+    if not isinstance(experiment_ref, str) or experiment_ref.strip() == "":
+        raise ValueError("study experiment must be a non-empty string: {}".format(study_path))
+
+    if "param_space" not in raw_conf:
+        raise ValueError("study param_space must be explicitly provided: {}".format(study_path))
+    param_space = raw_conf.get("param_space")
+    if not isinstance(param_space, dict):
+        raise ValueError("study param_space must be a mapping: {}".format(study_path))
+
     seeds = raw_conf.get("seeds", [0])
-    cases = raw_conf.get("cases", [])
-
-    if not isinstance(study_name, str) or study_name.strip() == "":
-        raise ValueError("study name must be a non-empty string: {}".format(study_path))
-    if not isinstance(seeds, list) or not seeds:
+    if not isinstance(seeds, list) or len(seeds) == 0:
         raise ValueError("study seeds must be a non-empty list: {}".format(study_path))
-    if not isinstance(cases, list) or not cases:
-        raise ValueError("study cases must be a non-empty list: {}".format(study_path))
 
-    normalized_cases = []
-    for case_index, case in enumerate(cases):
-        if not isinstance(case, dict):
-            raise ValueError("study case {} must be a mapping".format(case_index))
-        experiment_ref = case.get("experiment")
-        if not experiment_ref:
-            raise ValueError("study case {} missing experiment".format(case_index))
-        normalized_cases.append(
-            {
-                "name": case.get("name"),
-                "experiment": experiment_ref,
-                "overrides": _normalize_case_overrides(case.get("overrides"), "study case {}".format(case_index)),
-            }
+    base_conf = load_experiment_config(experiment_ref)
+    derived_name = _study_name_from_conf(base_conf)
+    configured_name = raw_conf.get("name")
+    if configured_name is not None and configured_name != derived_name:
+        raise ValueError(
+            "study name must match the derived model_dataset '{}': {}".format(derived_name, study_path)
         )
 
     return {
         "path": study_path,
-        "name": study_name,
+        "name": derived_name,
+        "experiment": experiment_ref,
+        "base_conf": dict(base_conf),
         "seeds": [int(seed) for seed in seeds],
-        "cases": normalized_cases,
+        "search_config": _normalize_search_config(raw_conf.get("search_config"), study_path),
+        "param_space": dict(param_space),
     }
-
-
-def _default_case_name(conf):
-    return "{}_{}for{}".format(conf["dataset_name"], conf["hist_len"], conf["pred_len"])
 
 
 def _build_failure_record(conf, error):
     return {
+        "study_name": conf["study_name"],
+        "experiment": conf["experiment_ref"],
+        "resume_hit": False,
         "task_name": conf.get("task_name", "mtsf"),
         "model_name": conf["model_name"],
         "dataset_name": conf["dataset_name"],
@@ -125,11 +225,22 @@ def _build_failure_record(conf, error):
     }
 
 
-def _build_study_row(study_name, case_index, case_name, experiment_ref, metrics, resume_hit):
+def _build_tune_failure_record(study_name, experiment_ref, search_dir, conf, error):
+    metrics = _build_failure_record(
+        {
+            **conf,
+            "study_name": study_name,
+            "experiment_ref": experiment_ref,
+        },
+        "tune failed: {}".format(error),
+    )
+    metrics["exp_dir"] = str(Path(search_dir).resolve())
+    return metrics
+
+
+def _build_study_row(study_name, experiment_ref, metrics, resume_hit):
     row = {
         "study_name": study_name,
-        "case_index": case_index,
-        "case_name": case_name,
         "experiment": experiment_ref,
         "resume_hit": bool(resume_hit),
     }
@@ -138,11 +249,11 @@ def _build_study_row(study_name, case_index, case_name, experiment_ref, metrics,
 
 
 def _write_runs_report(study_dir, rows):
-    runs_path = Path(study_dir) / "runs.csv"
+    study_dir = Path(study_dir)
+    study_dir.mkdir(parents=True, exist_ok=True)
+    runs_path = study_dir / "runs.csv"
     columns = [
         "study_name",
-        "case_index",
-        "case_name",
         "experiment",
         "resume_hit",
         "task_name",
@@ -163,20 +274,20 @@ def _write_runs_report(study_dir, rows):
     ]
     normalized_rows = []
     for row in rows:
-        normalized = {column: row.get(column) for column in columns}
-        normalized_rows.append(normalized)
-    normalized_rows.sort(key=lambda row: (row["case_index"], row["seed"]))
+        normalized_rows.append({column: row.get(column) for column in columns})
+    normalized_rows.sort(key=lambda row: (row["conf_hash"], row["seed"]))
 
     with runs_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
         writer.writerows(normalized_rows)
-
     return runs_path, normalized_rows
 
 
 def _write_summary_report(study_dir, runs_rows):
-    summary_path = Path(study_dir) / "summary.csv"
+    study_dir = Path(study_dir)
+    study_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = study_dir / "summary.csv"
     summary_columns = [
         "task_name",
         "model_name",
@@ -227,6 +338,127 @@ def _write_summary_report(study_dir, runs_rows):
     return summary_path
 
 
+def _write_placeholder_search_reports(paths, best_params):
+    rows = [{"trial_id": 0, **best_params}] if best_params else [{"trial_id": 0}]
+    fieldnames = sorted(rows[0].keys())
+    for target_path in (paths["trial_report_path"], paths["best_trial_report_path"]):
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with target_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+
+def _build_tune_reporter(param_space, metric, mode):
+    from ray.tune import CLIReporter
+
+    return CLIReporter(
+        parameter_columns=list(param_space.keys()),
+        metric_columns=[metric],
+        metric=metric,
+        mode=mode,
+        sort_by_metric=True,
+    )
+
+
+def _save_tune_reports(result_grid, metric, mode, report_dir):
+    target_dir = Path(report_dir).expanduser().resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    trial_report_path = target_dir / "trial_report.csv"
+    best_report_path = target_dir / "best_trial_report.csv"
+
+    result_grid.get_dataframe().to_csv(trial_report_path, index=False)
+    result_grid.get_dataframe(filter_metric=metric, filter_mode=mode).to_csv(best_report_path, index=False)
+    return trial_report_path, best_report_path
+
+
+def _build_tune_callbacks(conf):
+    from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
+
+    return [
+        TuneReportCheckpointCallback(
+            {conf["val_metric"]: conf["val_metric"]},
+            save_checkpoints=False,
+            on="validation_end",
+        )
+    ]
+
+
+def _tune_train_func(hyper_conf, base_conf, trial_root):
+    conf = finalize_runtime_conf(base_conf, overrides=hyper_conf)
+    conf["exp_dir"] = str(_build_study_exp_dir(trial_root, conf["conf_hash"], conf["seed"]))
+    run_experiment(conf, extra_callbacks=_build_tune_callbacks(conf))
+
+
+def _run_tune_search(param_space, init_conf, search_dir, search_config):
+    search_dir = Path(search_dir)
+    if len(param_space) == 0:
+        return {
+            "metric": init_conf["val_metric"],
+            "mode": "min",
+            "experiment_path": str(search_dir.resolve()),
+            "trial_report_path": str((search_dir / "trial_report.csv").resolve()),
+            "best_trial_report_path": str((search_dir / "best_trial_report.csv").resolve()),
+            "best_config": {},
+            "best_metrics": {},
+            "num_errors": 0,
+            "errors": [],
+            "status": "fixed",
+        }
+
+    import ray
+    from ray import tune
+    from ray.tune.schedulers import FIFOScheduler
+
+    if not ray.is_initialized():
+        if search_config["num_gpus"] > 0:
+            ray.init(num_gpus=search_config["num_gpus"])
+        else:
+            ray.init()
+
+    metric = init_conf["val_metric"]
+    scheduler = FIFOScheduler()
+    reporter = _build_tune_reporter(param_space, metric, "min")
+    trainable = tune.with_parameters(_tune_train_func, base_conf=init_conf, trial_root=search_dir / "trials")
+    trainable = tune.with_resources(
+        trainable,
+        resources={"cpu": search_config["cpus_per_trial"], "gpu": search_config["gpus_per_trial"]},
+    )
+
+    tuner = tune.Tuner(
+        trainable=trainable,
+        param_space=param_space,
+        tune_config=tune.TuneConfig(
+            metric=metric,
+            mode="min",
+            scheduler=scheduler,
+            num_samples=search_config["num_samples"],
+        ),
+        run_config=tune.RunConfig(
+            name="ray",
+            storage_path=str((search_dir / "ray_results").expanduser().resolve()),
+            progress_reporter=reporter,
+        ),
+    )
+
+    result_grid = tuner.fit()
+    trial_report_path, best_report_path = _save_tune_reports(result_grid, metric, "min", report_dir=search_dir)
+    best_result = result_grid.get_best_result(metric=metric, mode="min", scope="all")
+    return {
+        "metric": metric,
+        "mode": "min",
+        "experiment_path": str(Path(result_grid.experiment_path).resolve()),
+        "trial_report_path": str(trial_report_path.resolve()),
+        "best_trial_report_path": str(best_report_path.resolve()),
+        "best_config": {key: _serialize_value(value) for key, value in dict(best_result.config).items()},
+        "best_metrics": {key: _serialize_value(value) for key, value in dict(best_result.metrics).items()},
+        "num_errors": int(result_grid.num_errors),
+        "errors": [str(error) for error in result_grid.errors],
+        "status": "searched",
+    }
+
+
 def run_study(
     study_ref,
     runtime_overrides=None,
@@ -236,84 +468,199 @@ def run_study(
 ):
     study_conf = load_study(study_ref)
     runtime_overrides = dict(runtime_overrides or {})
-    study_dir = Path(runtime_overrides.get("save_root", "save")) / "studies" / study_conf["name"]
-    study_dir.mkdir(parents=True, exist_ok=True)
-
-    run_specs = []
-    for case_index, case in enumerate(study_conf["cases"]):
-        for seed in study_conf["seeds"]:
-            run_conf = load_config(case["experiment"], overrides=case["overrides"])
-            finalized_conf = finalize_runtime_conf(
-                run_conf,
-                overrides={**runtime_overrides, "seed": seed},
-            )
-            case_name = case["name"] or _default_case_name(finalized_conf)
-            run_specs.append(
-                {
-                    "case_index": case_index,
-                    "case_name": case_name,
-                    "experiment": case["experiment"],
-                    "conf": finalized_conf,
-                }
-            )
+    study_dir = _build_study_dir(runtime_overrides.get("save_root", "save"), study_conf["name"])
+    artifact_paths = _build_study_artifact_paths(study_dir)
+    base_conf = dict(study_conf["base_conf"])
+    seeds = list(study_conf["seeds"])
 
     if dry_run:
-        for spec in run_specs:
-            conf = spec["conf"]
-            print(
-                "[dry-run] case={} seed={} task={} experiment={} dataset={} hist_len={} pred_len={} exp_dir={}".format(
-                    spec["case_name"],
-                    conf["seed"],
-                    conf.get("task_name", "mtsf"),
-                    spec["experiment"],
-                    conf["dataset_name"],
-                    conf["hist_len"],
-                    conf["pred_len"],
-                    conf["exp_dir"],
-                )
+        print(
+            "[dry-run] study={} experiment={} dataset={} hist_len={} pred_len={} tune_seed={} eval_seeds={} param_keys={} study_dir={}".format(
+                study_conf["name"],
+                study_conf["experiment"],
+                base_conf["dataset_name"],
+                base_conf["hist_len"],
+                base_conf["pred_len"],
+                seeds[0],
+                seeds,
+                sorted(study_conf["param_space"].keys()),
+                study_dir,
             )
+        )
         return {
             "study_name": study_conf["name"],
             "study_dir": str(study_dir.resolve()),
-            "run_count": len(run_specs),
+            "run_count": len(seeds),
             "rows": [],
-            "runs_path": None,
-            "summary_path": None,
+            "runs_path": str(artifact_paths["runs_path"].resolve()),
+            "summary_path": str(artifact_paths["summary_path"].resolve()),
+            "search_dir": str(artifact_paths["search_dir"].resolve()),
+            "trial_report_path": str(artifact_paths["trial_report_path"].resolve()),
+            "best_trial_report_path": str(artifact_paths["best_trial_report_path"].resolve()),
+            "best_params_path": str(artifact_paths["best_params_path"].resolve()),
+            "tune_meta_path": str(artifact_paths["tune_meta_path"].resolve()),
         }
+
+    artifact_paths["study_dir"].mkdir(parents=True, exist_ok=True)
+    _save_json(
+        artifact_paths["resolved_study_path"],
+        {
+            "study_name": study_conf["name"],
+            "study_ref": str(study_conf["path"]),
+            "experiment": study_conf["experiment"],
+            "seeds": list(seeds),
+            "search_config": dict(study_conf["search_config"]),
+            "param_space_keys": sorted(study_conf["param_space"].keys()),
+            "base_conf": {key: _serialize_value(value) for key, value in sorted(base_conf.items())},
+        },
+    )
+
+    if resume and _has_resumeable_search_artifacts(artifact_paths):
+        print("[resume-search] {} -> {}".format(study_conf["name"], artifact_paths["search_dir"]))
+        best_params = dict(json.loads(artifact_paths["best_params_path"].read_text(encoding="utf-8")))
+        tune_meta = json.loads(artifact_paths["tune_meta_path"].read_text(encoding="utf-8")) if artifact_paths["tune_meta_path"].exists() else {}
+    else:
+        print("[search] {} -> {}".format(study_conf["name"], artifact_paths["search_dir"]))
+        search_init_conf = {**base_conf, **runtime_overrides, "seed": seeds[0]}
+        try:
+            search_result = _run_tune_search(
+                param_space=study_conf["param_space"],
+                init_conf=search_init_conf,
+                search_dir=artifact_paths["search_dir"],
+                search_config=study_conf["search_config"],
+            )
+            best_params = dict(search_result["best_config"])
+            if search_result["status"] == "fixed":
+                _write_placeholder_search_reports(artifact_paths, best_params)
+            tune_meta = {
+                "study_name": study_conf["name"],
+                "experiment": study_conf["experiment"],
+                "search_dir": str(artifact_paths["search_dir"].resolve()),
+                "search_config": dict(study_conf["search_config"]),
+                "param_keys": sorted(study_conf["param_space"].keys()),
+                "status": "success",
+                "mode": search_result["mode"],
+                "metric": search_result["metric"],
+                "best_config": dict(best_params),
+                "best_metrics": dict(search_result["best_metrics"]),
+                "trial_report_path": search_result["trial_report_path"],
+                "best_trial_report_path": search_result["best_trial_report_path"],
+                "experiment_path": search_result["experiment_path"],
+                "num_errors": int(search_result["num_errors"]),
+                "errors": list(search_result["errors"]),
+                "search_status": search_result["status"],
+            }
+            _save_json(artifact_paths["best_params_path"], best_params)
+            _save_json(artifact_paths["tune_meta_path"], tune_meta)
+        except Exception as error:
+            _save_json(
+                artifact_paths["tune_meta_path"],
+                {
+                    "study_name": study_conf["name"],
+                    "experiment": study_conf["experiment"],
+                    "search_dir": str(artifact_paths["search_dir"].resolve()),
+                    "search_config": dict(study_conf["search_config"]),
+                    "param_keys": sorted(study_conf["param_space"].keys()),
+                    "status": "failed",
+                    "error": str(error),
+                },
+            )
+            rows = []
+            for seed in seeds:
+                failed_conf = finalize_runtime_conf(
+                    base_conf,
+                    overrides={
+                        **runtime_overrides,
+                        "seed": seed,
+                        "exp_dir": str(_build_study_exp_dir(study_dir, "search_failed", seed)),
+                    },
+                )
+                rows.append(
+                    _build_study_row(
+                        study_conf["name"],
+                        study_conf["experiment"],
+                        _build_tune_failure_record(
+                            study_conf["name"],
+                            study_conf["experiment"],
+                            artifact_paths["search_dir"],
+                            failed_conf,
+                            error,
+                        ),
+                        resume_hit=False,
+                    )
+                )
+            runs_path, runs_rows = _write_runs_report(study_dir, rows)
+            summary_path = _write_summary_report(study_dir, runs_rows)
+            if fail_fast:
+                raise RuntimeError("study stopped because fail_fast=1") from error
+            return {
+                "study_name": study_conf["name"],
+                "study_dir": str(study_dir.resolve()),
+                "run_count": len(rows),
+                "rows": rows,
+                "runs_path": str(runs_path.resolve()),
+                "summary_path": str(summary_path.resolve()),
+                "search_dir": str(artifact_paths["search_dir"].resolve()),
+                "trial_report_path": str(artifact_paths["trial_report_path"].resolve()),
+                "best_trial_report_path": str(artifact_paths["best_trial_report_path"].resolve()),
+                "best_params_path": str(artifact_paths["best_params_path"].resolve()),
+                "tune_meta_path": str(artifact_paths["tune_meta_path"].resolve()),
+            }
 
     rows = []
     stop_error = None
-    for spec in run_specs:
-        conf = spec["conf"]
+    for seed in seeds:
+        conf = finalize_runtime_conf(base_conf, overrides={**runtime_overrides, **best_params, "seed": seed})
+        conf["study_name"] = study_conf["name"]
+        conf["experiment_ref"] = study_conf["experiment"]
+        conf["exp_dir"] = str(_build_study_exp_dir(study_dir, conf["conf_hash"], conf["seed"]))
+
         existing_metrics = load_saved_metrics(conf) if resume else None
         if existing_metrics and existing_metrics.get("status") == "success":
-            print("[resume] {} seed={} -> {}".format(spec["case_name"], conf["seed"], conf["exp_dir"]))
+            print("[resume] {} seed={} -> {}".format(study_conf["name"], conf["seed"], conf["exp_dir"]))
             rows.append(
                 _build_study_row(
                     study_conf["name"],
-                    spec["case_index"],
-                    spec["case_name"],
-                    spec["experiment"],
+                    study_conf["experiment"],
                     existing_metrics,
                     resume_hit=True,
                 )
             )
             continue
 
-        print("[run] {} seed={} -> {}".format(spec["case_name"], conf["seed"], conf["exp_dir"]))
+        print("[run] {} seed={} -> {}".format(study_conf["name"], conf["seed"], conf["exp_dir"]))
         try:
-            metrics = run_training(conf)
+            result = run_experiment(conf)
+            metrics = result if isinstance(result, dict) else load_saved_metrics(conf)
+            if metrics is None:
+                try:
+                    ckpt_path = resolve_ckpt_path(conf, "best")
+                except FileNotFoundError:
+                    ckpt_path = None
+                metrics = {
+                    "task_name": conf.get("task_name", "mtsf"),
+                    "model_name": conf["model_name"],
+                    "dataset_name": conf["dataset_name"],
+                    "hist_len": int(conf["hist_len"]),
+                    "pred_len": int(conf["pred_len"]),
+                    "seed": int(conf["seed"]),
+                    "conf_hash": conf["conf_hash"],
+                    "exp_dir": str(Path(conf["exp_dir"]).resolve()),
+                    "ckpt_path": ckpt_path,
+                    "status": "success",
+                    "error": None,
+                    "val_metric_name": conf.get("val_metric"),
+                    "val_metric_value": None,
+                    "mae": None,
+                    "mse": None,
+                }
         except Exception as error:
-            save_resolved_config(conf)
             metrics = _build_failure_record(conf, error)
-            save_metrics(conf, metrics)
-            print("[failed] {} seed={} error={}".format(spec["case_name"], conf["seed"], error))
+            print("[failed] {} seed={} error={}".format(study_conf["name"], conf["seed"], error))
             rows.append(
                 _build_study_row(
                     study_conf["name"],
-                    spec["case_index"],
-                    spec["case_name"],
-                    spec["experiment"],
+                    study_conf["experiment"],
                     metrics,
                     resume_hit=False,
                 )
@@ -326,9 +673,7 @@ def run_study(
         rows.append(
             _build_study_row(
                 study_conf["name"],
-                spec["case_index"],
-                spec["case_name"],
-                spec["experiment"],
+                study_conf["experiment"],
                 metrics,
                 resume_hit=False,
             )
@@ -343,6 +688,11 @@ def run_study(
         "rows": rows,
         "runs_path": str(runs_path.resolve()),
         "summary_path": str(summary_path.resolve()),
+        "search_dir": str(artifact_paths["search_dir"].resolve()),
+        "trial_report_path": str(artifact_paths["trial_report_path"].resolve()),
+        "best_trial_report_path": str(artifact_paths["best_trial_report_path"].resolve()),
+        "best_params_path": str(artifact_paths["best_params_path"].resolve()),
+        "tune_meta_path": str(artifact_paths["tune_meta_path"].resolve()),
     }
     if stop_error is not None:
         raise RuntimeError("study stopped because fail_fast=1") from stop_error

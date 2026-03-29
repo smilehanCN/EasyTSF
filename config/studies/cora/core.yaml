@@ -1,8 +1,0 @@
-name: cora_core
-seeds: [0]
-cases:
-  - experiment: cora/ettm2_384for96
-    overrides:
-      data:
-        hist_len: 384
-        pred_len: 96

@@ -1,126 +1,74 @@
 # AGENT.md
 
-This file is for AI coding agents working in this repository. The goal is to keep the repo optimized for rapid multivariate, graph spatiotemporal, and regular-grid spatiotemporal forecasting research, not for heavy framework building.
+This repository is optimized for rapid multivariate time-series forecasting research. Keep it small, explicit, and `mtsf`-only.
 
 ## Mission
 
-- Use shared experiment/study workflow to support fast model iteration across `mtsf`, `stf`, `grid2dtsf`, and `grid3dtsf`.
-- Keep experiments comparable, reproducible, and easy to resume.
-- Spend complexity on model ideas and benchmark workflow, not on scaffolding.
-
-## Core Concepts
-
-### `experiment`
-
-An `experiment` is one runnable training/evaluation preset. It already contains:
-
-- model hyper-parameters
-- dataset selection
-- dataset-specific training hyper-parameters
-- one default `hist_len/pred_len`
-
-The preferred layout is `config/experiments/<model_id>/<dataset_id>.yaml`, with lowercase config ids.
-
-### `study`
-
-A `study` is a thin batch benchmark specification. It only decides:
-
-- which experiment presets to run
-- which seeds to repeat
-- which case-level overrides to apply
-- how results are resumed and aggregated
-
-`study` must not become a second experiment layer. Do not move dataset-specific training recipes into study overrides.
+- Support fast model iteration on the maintained `mtsf` path.
+- Keep experiment and study workflow reproducible and easy to resume.
+- Delete dead compatibility code instead of preserving old abstractions.
 
 ## Current Boundaries
 
-- Maintain `mtsf`, static-graph `stf`, native 2D-grid `grid2dtsf`, and native 3D-grid `grid3dtsf`.
-- Do not treat flattened grid data, future dynamic-graph variants, or irregular mesh inputs as already-native tasks.
-- Do not reintroduce old runner variants, visualization branches, auxiliary losses, or task-dispatch trees.
-- Do not rebuild `ray_tune.py`, Python `exp_conf`, or `exp_runner` style orchestration.
-- Do not add plugin systems, registries, dataset-profile layers, or large test matrices unless the repository goal changes.
+- Maintain only `mtsf`.
+- Do not reintroduce grid tasks, graph side inputs, `npz` dataset compatibility, or generic TSF abstractions.
+- Do not rebuild old runner variants, plugin systems, or large registry trees.
+- Prefer explicit config and direct code paths over framework-style indirection.
 
 ## Architecture Map
 
-### CLI
-
-- `train.py`: single-experiment training entry
-- `evaluate.py`: single-experiment evaluation entry
-- `study.py`: batch benchmark entry
-
 ### Config
 
-- `config/tasks/mtsf.yaml`: default task config for the MTSF path
-- `config/tasks/stf.yaml`: default task config for the static-graph STF path
-- `config/tasks/grid2dtsf.yaml`: default task config for the native 2D-grid forecasting path
-- `config/tasks/grid3dtsf.yaml`: default task config for the native 3D-grid forecasting path
-- `config/experiments/<model_id>/*.yaml`: experiment presets
-- `config/studies/<model_id>/*.yaml`: study specs
-- `config/search_spaces/<model_id>/*.py`: Ray Tune search spaces
+- `config/experiments/<model_id>/*.yaml`: runnable experiment presets
+- `config/studies/<model_id>/*.py`: benchmark studies
 
 Config merge priority is fixed:
 
-`experiment > task`
+`experiment + runtime overrides`
 
-Do not break this rule and do not scatter experiment-specific constants into scripts.
-Use `runtime.task_name` to choose the task defaults; when omitted, default to `mtsf`.
+Every experiment preset must be self-contained and explicitly set `runtime.task_name: mtsf`.
 
 ### Data
 
-- `easytsf/data/data_module.py` contains the shared `DataInterface`.
-- `easytsf/data/grid_data_module.py` contains `GridDataInterface`.
-- Sequence datasets use BasicTS-style directories rooted at `dataset/<dataset_name>/` with `meta.json`, `train/val/test_data.npy`, optional `*_timestamps.npy`, and optional `adj_mx.pkl`.
-- Grid datasets keep `data.npz` plus optional `grid_mask.npy` / `coord.npy`, but still require `meta.json` with `split_lengths`.
-- Dataset facts come from directory-local `meta.json`, not from a central catalog.
-- Sliding-window split logic belongs in `DataInterface`, not in model-specific loaders.
+- `easytsf/data/mts_data_module.py` contains `MTSDataModule`.
+- Dataset layout is directory-based:
+  - `train_data.npy`
+  - `val_data.npy`
+  - `test_data.npy`
+  - `train_timestamps.npy`
+  - `val_timestamps.npy`
+  - `test_timestamps.npy`
+  - `meta.json` with frequency and `timestamps_description`
 
-### Task Layer
+### Task
 
 - `easytsf/task/mtsf.py` contains `MTSFTask`.
-- `easytsf/task/stf.py` contains `STFTask`.
-- `easytsf/task/gridstf.py` contains `Grid2DTSFTask` and `Grid3DTSFTask`.
-- Keep task semantics separate: do not push graph-aware behavior into `MTSFTask`.
+- Keep task semantics simple: model forward uses `forward(var_x, marker_x, marker_y)`.
 
-### Model Layer
+### Model
 
 - `easytsf/model/<model_id>.py` should define a top-level `Model` class.
-- Prefer one main file per model. Keep model-private helpers inside that file unless at least two models already share the same logic.
-- Model file names are lowercase. `model_name` may keep the paper-style spelling, but the main class name is always `Model`.
-- Model interfaces are task-specific:
-  - `mtsf`: `forward(var_x, marker_x)`
-  - `stf`: `forward(var_x, marker_x, graph)`
-  - `grid2dtsf`: `forward(var_x, marker_x, grid_mask=None, coord=None)`
-  - `grid3dtsf`: `forward(var_x, marker_x, grid_mask=None, coord=None)`
-- The default output shape should stay label-compatible:
-  - `mtsf` / `stf`: typically `[B, pred_len, N]`
-  - `grid2dtsf`: `[B, pred_len, C, H, W]`
-  - `grid3dtsf`: `[B, pred_len, C, X, Y, Z]`
+- The maintained output shape should stay label-compatible: typically `[B, pred_len, N]`.
+- Keep model-private helpers inside the model file unless there is real cross-model reuse.
 
-### Workflow Layer
+### Workflow
 
-- `easytsf/workflow/experiment.py` contains single-experiment orchestration and config loading.
-- `easytsf/workflow/study.py` contains batch benchmark orchestration.
-- Keep workflow code out of `data`, `model`, and `task`.
+- `easytsf/workflow/experiment.py` contains single-experiment orchestration.
+- `easytsf/workflow/study.py` contains benchmark orchestration.
+- Keep workflow logic out of `data`, `task`, and `model`.
 
 ## Change Guidelines
 
-- When adding a standard model, prefer changing only `easytsf/model/` and the corresponding experiment presets.
-- Use `--set section.key=value` for temporary overrides instead of creating many one-off configs.
-- If a dataset or horizon needs a long-lived special recipe, promote it to an experiment preset instead of growing study complexity.
-- Keep batch benchmarking thin: explicit cases, seeds, resume, and aggregation.
-- Do not reintroduce model-private code into a shared `layer/` package unless real reuse already exists.
-- Documentation must match the actual repository state. Do not describe features, files, or entrypoints that do not exist.
+- When adding a maintained model, change only the model file and matching experiment presets when possible.
+- If a code path exists only for historical compatibility and the current `mtsf` path does not use it, delete it.
+- For this research codebase, prefer letting Python/NumPy/PyTorch raise natural errors instead of adding layers of defensive pre-validation.
+- Keep explicit checks only when they prevent silent semantic misuse, such as config meaning not matching dataset meaning.
+- Documentation must describe the current repository state, not removed features.
 
 ## Validation Guidelines
 
-Default validation should stay lightweight. Prefer:
+Prefer lightweight validation:
 
 1. `conda activate easytsf`
-2. `python train.py -h`
-3. `python evaluate.py -h`
-4. `python study.py -h`
-5. Experiment YAMLs can be loaded
-6. At least one search-space module can be loaded
-7. If local data exists, run the smallest possible smoke benchmark
-
-The validation goal for research-oriented changes is: the main path still works. It is not to build a full CI discipline inside this repo.
+2. `python -m compileall easytsf tests/test_smoke_mlp_support.py tests/test_config_contracts.py`
+4. If local data exists, run the smallest `mtsf` smoke experiment

@@ -12,6 +12,10 @@ data:
   dataset_name: PEMS03
   hist_len: 96
   pred_len: 12
+  var_num: 358
+  precompute_window_index: false
+  time_feature_descriptions:
+    - time of day
 train:
   batch_size: 32
   max_epochs: 30
@@ -20,6 +24,13 @@ train:
   es_patience: 5
   optimizer: Adam
   gradient_clip_val: 0.0
+  gradient_clip_algorithm: norm
+  val_metric: val/loss
   use_mix_loss: false
 runtime:
   task_name: mtsf
+  num_workers: 2
+  pin_memory: null
+  persistent_workers: null
+  prefetch_factor: 2
+  use_mmap: false
