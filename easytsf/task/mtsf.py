@@ -8,12 +8,16 @@ import torch.nn.functional as F
 import torch.optim.lr_scheduler as lrs
 
 from easytsf.model import get_model_contract
+from easytsf.scaler import StandardScaler
 
 
 class MTSFTask(L.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
         self.save_hyperparameters()
+        self.register_buffer("data_mean", torch.zeros((1, int(self.hparams.var_num)), dtype=torch.float32), persistent=True)
+        self.register_buffer("data_std", torch.ones((1, int(self.hparams.var_num)), dtype=torch.float32), persistent=True)
+        self.scaler = StandardScaler(self.data_mean, self.data_std)
         self.model = self._build_model()
         self.loss_function = F.mse_loss
         self.mae_loss_func = F.l1_loss
@@ -65,18 +69,45 @@ class MTSFTask(L.LightningModule):
                 raise ValueError("config must define required model argument '{}' for {}".format(name, model_name))
         return model_cls(**model_args)
 
+    def _apply(self, fn):
+        super()._apply(fn)
+        self.scaler = StandardScaler(self.data_mean, self.data_std)
+        return self
+
+    def set_standardization_stats(self, mean, std):
+        scaler = StandardScaler(mean, std)
+        expected_shape = tuple(self.data_mean.shape)
+        if scaler.shape != expected_shape:
+            raise ValueError(
+                "standardization stats must have shape {}, but received {}".format(
+                    expected_shape,
+                    scaler.shape,
+                )
+            )
+
+        self.data_mean.copy_(torch.as_tensor(scaler.mean, dtype=self.data_mean.dtype, device=self.data_mean.device))
+        self.data_std.copy_(torch.as_tensor(scaler.std, dtype=self.data_std.dtype, device=self.data_std.device))
+
+    @staticmethod
+    def _resolve_metric_space(metric_space):
+        if metric_space not in {"original", "normalized"}:
+            raise ValueError("test_metric_space must be 'original' or 'normalized', but received {!r}".format(metric_space))
+        return metric_space
+
     def preprocess_batch(self, batch):
         var_x, marker_x, var_y, marker_y = self._prepare_batch(batch)
         return {
-            "inputs": var_x,
+            "inputs": self.scaler.transform(var_x),
             "inputs_timestamps": marker_x,
-            "targets": var_y,
+            "targets": self.scaler.transform(var_y),
             "targets_timestamps": marker_y,
         }
 
     def postprocess_outputs(self, prediction, label, targets_mask=None):
-        del targets_mask
-        return prediction, label
+        return (
+            self.scaler.inverse_transform(prediction, mask=targets_mask),
+            self.scaler.inverse_transform(label, mask=targets_mask),
+        )
 
     def _run_model(self, var_x, marker_x, marker_y):
         return self.model(var_x, marker_x, marker_y)
@@ -112,7 +143,7 @@ class MTSFTask(L.LightningModule):
     def forward(self, batch, batch_idx):
         del batch_idx
         outputs = self._forward_with_context(batch)
-        return outputs["prediction"], outputs["label"]
+        return self.postprocess_outputs(outputs["prediction"], outputs["label"])
 
     def training_step(self, batch, batch_idx):
         del batch_idx
@@ -140,7 +171,11 @@ class MTSFTask(L.LightningModule):
     def test_step(self, batch, batch_idx):
         del batch_idx
         outputs = self._forward_with_context(batch)
-        prediction, label = self.postprocess_outputs(outputs["prediction"], outputs["label"])
+        metric_space = self._resolve_metric_space(getattr(self.hparams, "test_metric_space", "original"))
+        if metric_space == "original":
+            prediction, label = self.postprocess_outputs(outputs["prediction"], outputs["label"])
+        else:
+            prediction, label = outputs["prediction"], outputs["label"]
         mae = self.mae_loss_func(prediction, label)
         mse = self.mse_loss_func(prediction, label)
         self.log("test/mae", mae, on_step=False, on_epoch=True, sync_dist=True)

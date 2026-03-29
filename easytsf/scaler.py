@@ -4,6 +4,57 @@ import numpy as np
 import torch
 
 
+class StandardScaler:
+    def __init__(self, mean, std):
+        self.mean = self._coerce_stats(mean)
+        self.std = self._coerce_stats(std)
+        if self.mean.shape != self.std.shape:
+            raise ValueError("scaler mean/std shape mismatch: {} vs {}".format(tuple(self.mean.shape), tuple(self.std.shape)))
+        if self._any_non_positive(self.std):
+            raise ValueError("scaler std must be strictly positive")
+
+    @classmethod
+    def fit(cls, data, null_val=None, norm_each_channel=True):
+        mean, std = fit_zscore_stats(data, null_val=null_val, norm_each_channel=norm_each_channel)
+        return cls(mean, std)
+
+    @staticmethod
+    def _coerce_stats(stats):
+        if isinstance(stats, torch.Tensor):
+            return stats.detach()
+        return np.asarray(stats, dtype=np.float32)
+
+    @staticmethod
+    def _any_non_positive(stats):
+        if isinstance(stats, torch.Tensor):
+            return bool(torch.any(stats <= 0).item())
+        return bool(np.any(stats <= 0))
+
+    @property
+    def shape(self):
+        return tuple(self.mean.shape)
+
+    def _stats_like(self, input_data):
+        if isinstance(input_data, torch.Tensor):
+            mean = torch.as_tensor(self.mean, dtype=input_data.dtype, device=input_data.device)
+            std = torch.as_tensor(self.std, dtype=input_data.dtype, device=input_data.device)
+            return mean, std
+        mean = np.asarray(self.mean, dtype=np.float32)
+        std = np.asarray(self.std, dtype=np.float32)
+        return mean, std
+
+    def transform(self, input_data, mask=None):
+        mean, std = self._stats_like(input_data)
+        return transform_by_stats(input_data, mean, std, mask=mask)
+
+    def inverse_transform(self, input_data, mask=None):
+        mean, std = self._stats_like(input_data)
+        return inverse_transform_by_stats(input_data, mean, std, mask=mask)
+
+    def export_numpy(self):
+        return np.asarray(self.mean, dtype=np.float32).copy(), np.asarray(self.std, dtype=np.float32).copy()
+
+
 def _is_nan_null_value(null_val):
     if null_val is None:
         return False
