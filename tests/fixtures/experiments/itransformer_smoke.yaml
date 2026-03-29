@@ -1,0 +1,36 @@
+model:
+  model_name: iTransformer
+  output_attention: false
+  d_model: 8
+  dropout: 0.0
+  factor: 1
+  n_heads: 1
+  d_ff: 16
+  activation: gelu
+  e_layers: 1
+data:
+  dataset_name: SmokeSet
+  hist_len: 8
+  pred_len: 4
+  var_num: 2
+  precompute_window_index: false
+train:
+  batch_size: 2
+  max_epochs: 1
+  lr: 0.001
+  lr_scheduler: StepLR
+  lr_step_size: 1
+  lr_gamma: 0.5
+  optimizer: Adam
+  es_patience: 1
+  gradient_clip_val: 0.0
+  gradient_clip_algorithm: norm
+  val_metric: val/loss
+  use_mix_loss: false
+runtime:
+  task_name: mtsf
+  num_workers: 0
+  pin_memory: false
+  persistent_workers: false
+  prefetch_factor: 2
+  use_mmap: false
