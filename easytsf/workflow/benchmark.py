@@ -5,19 +5,19 @@ import math
 import statistics
 from pathlib import Path
 
-from .config import STUDY_CONFIG_DIR, _save_json, load_experiment_config, load_module_from_path
-from .experiment import _serialize_value, resolve_ckpt_path, run_experiment
 from .config import finalize_runtime_conf
+from .config import BENCHMARK_CONFIG_DIR, _save_json, load_experiment_config, load_module_from_path
+from .experiment import _serialize_value, resolve_ckpt_path, run_experiment
 
 
-STUDY_ALLOWED_KEYS = {"name", "seeds", "search_config", "experiment", "param_space"}
-STUDY_SEARCH_CONFIG_DEFAULTS = {
+BENCHMARK_ALLOWED_KEYS = {"name", "seeds", "search_config", "experiment", "param_space"}
+BENCHMARK_SEARCH_CONFIG_DEFAULTS = {
     "num_samples": 1,
     "cpus_per_trial": 2,
     "gpus_per_trial": 0.5,
     "num_gpus": 0,
 }
-STUDY_SEARCH_ALLOWED_KEYS = set(STUDY_SEARCH_CONFIG_DEFAULTS)
+BENCHMARK_SEARCH_ALLOWED_KEYS = set(BENCHMARK_SEARCH_CONFIG_DEFAULTS)
 
 
 def _slug(value):
@@ -27,38 +27,38 @@ def _slug(value):
     return slug
 
 
-def _resolve_study_path(study_ref):
-    ref_path = Path(study_ref).expanduser()
+def _resolve_benchmark_path(benchmark_ref):
+    ref_path = Path(benchmark_ref).expanduser()
     if ref_path.exists():
         return ref_path.resolve()
 
-    relative_ref = Path(study_ref)
+    relative_ref = Path(benchmark_ref)
     if relative_ref.suffix != ".py":
         relative_ref = relative_ref.with_suffix(".py")
-    resolved_path = (STUDY_CONFIG_DIR / relative_ref).resolve()
+    resolved_path = (BENCHMARK_CONFIG_DIR / relative_ref).resolve()
     if resolved_path.exists():
         return resolved_path
-    raise FileNotFoundError("study config not found: {}".format(study_ref))
+    raise FileNotFoundError("benchmark config not found: {}".format(benchmark_ref))
 
 
-def _load_python_study(path):
+def _load_python_benchmark(path):
     module_hash = hashlib.md5(str(path).encode("utf-8")).hexdigest()[:10]
-    module = load_module_from_path("easytsf_study_{}".format(module_hash), str(path))
-    if not hasattr(module, "study"):
-        raise ValueError("study module must define study: {}".format(path))
-    return module.study
+    module = load_module_from_path("easytsf_benchmark_{}".format(module_hash), str(path))
+    if not hasattr(module, "benchmark"):
+        raise ValueError("benchmark module must define benchmark: {}".format(path))
+    return module.benchmark
 
 
-def _normalize_search_config(raw_search_config, study_path):
+def _normalize_search_config(raw_search_config, benchmark_path):
     if raw_search_config is None:
         raw_search_config = {}
     if not isinstance(raw_search_config, dict):
-        raise ValueError("study search_config must be a mapping: {}".format(study_path))
-    unknown_keys = set(raw_search_config) - STUDY_SEARCH_ALLOWED_KEYS
+        raise ValueError("benchmark search_config must be a mapping: {}".format(benchmark_path))
+    unknown_keys = set(raw_search_config) - BENCHMARK_SEARCH_ALLOWED_KEYS
     if unknown_keys:
-        raise ValueError("unsupported search_config keys in {}: {}".format(study_path, sorted(unknown_keys)))
+        raise ValueError("unsupported search_config keys in {}: {}".format(benchmark_path, sorted(unknown_keys)))
 
-    search_config = {**STUDY_SEARCH_CONFIG_DEFAULTS, **raw_search_config}
+    search_config = {**BENCHMARK_SEARCH_CONFIG_DEFAULTS, **raw_search_config}
     search_config["num_samples"] = int(search_config["num_samples"])
     search_config["cpus_per_trial"] = int(search_config["cpus_per_trial"])
     search_config["gpus_per_trial"] = float(search_config["gpus_per_trial"])
@@ -66,31 +66,31 @@ def _normalize_search_config(raw_search_config, study_path):
     return search_config
 
 
-def _study_name_from_conf(conf):
+def _benchmark_name_from_conf(conf):
     return "{}_{}".format(_slug(conf["model_name"]), _slug(conf["dataset_name"]))
 
 
-def _build_study_dir(save_root, study_name):
-    return Path(save_root) / "studies" / study_name
+def _build_benchmark_dir(save_root, benchmark_name):
+    return Path(save_root) / "benchmarks" / benchmark_name
 
 
-def _build_study_exp_dir(study_dir, conf_hash, seed):
-    return Path(study_dir) / conf_hash / "seed_{}".format(seed)
+def _build_benchmark_exp_dir(benchmark_dir, conf_hash, seed):
+    return Path(benchmark_dir) / conf_hash / "seed_{}".format(seed)
 
 
-def _build_study_artifact_paths(study_dir):
-    study_dir = Path(study_dir)
-    search_dir = study_dir / "search"
+def _build_benchmark_artifact_paths(benchmark_dir):
+    benchmark_dir = Path(benchmark_dir)
+    search_dir = benchmark_dir / "search"
     return {
-        "study_dir": study_dir,
-        "resolved_study_path": study_dir / "study.json",
+        "benchmark_dir": benchmark_dir,
+        "resolved_benchmark_path": benchmark_dir / "benchmark.json",
         "search_dir": search_dir,
         "trial_report_path": search_dir / "trial_report.csv",
         "best_trial_report_path": search_dir / "best_trial_report.csv",
         "best_params_path": search_dir / "best_params.json",
         "tune_meta_path": search_dir / "tune_meta.json",
-        "runs_path": study_dir / "runs.csv",
-        "summary_path": study_dir / "summary.csv",
+        "runs_path": benchmark_dir / "runs.csv",
+        "summary_path": benchmark_dir / "summary.csv",
     }
 
 
@@ -161,52 +161,52 @@ def load_saved_metrics(conf):
     }
 
 
-def load_study(study_ref):
-    study_path = _resolve_study_path(study_ref)
-    raw_conf = _load_python_study(study_path)
+def load_benchmark(benchmark_ref):
+    benchmark_path = _resolve_benchmark_path(benchmark_ref)
+    raw_conf = _load_python_benchmark(benchmark_path)
     if not isinstance(raw_conf, dict):
-        raise ValueError("study config must be a mapping: {}".format(study_path))
+        raise ValueError("benchmark config must be a mapping: {}".format(benchmark_path))
 
-    unknown_keys = set(raw_conf) - STUDY_ALLOWED_KEYS
+    unknown_keys = set(raw_conf) - BENCHMARK_ALLOWED_KEYS
     if unknown_keys:
-        raise ValueError("unsupported study keys in {}: {}".format(study_path, sorted(unknown_keys)))
+        raise ValueError("unsupported benchmark keys in {}: {}".format(benchmark_path, sorted(unknown_keys)))
 
     experiment_ref = raw_conf.get("experiment")
     if not isinstance(experiment_ref, str) or experiment_ref.strip() == "":
-        raise ValueError("study experiment must be a non-empty string: {}".format(study_path))
+        raise ValueError("benchmark experiment must be a non-empty string: {}".format(benchmark_path))
 
     if "param_space" not in raw_conf:
-        raise ValueError("study param_space must be explicitly provided: {}".format(study_path))
+        raise ValueError("benchmark param_space must be explicitly provided: {}".format(benchmark_path))
     param_space = raw_conf.get("param_space")
     if not isinstance(param_space, dict):
-        raise ValueError("study param_space must be a mapping: {}".format(study_path))
+        raise ValueError("benchmark param_space must be a mapping: {}".format(benchmark_path))
 
     seeds = raw_conf.get("seeds", [0])
     if not isinstance(seeds, list) or len(seeds) == 0:
-        raise ValueError("study seeds must be a non-empty list: {}".format(study_path))
+        raise ValueError("benchmark seeds must be a non-empty list: {}".format(benchmark_path))
 
     base_conf = load_experiment_config(experiment_ref)
-    derived_name = _study_name_from_conf(base_conf)
+    derived_name = _benchmark_name_from_conf(base_conf)
     configured_name = raw_conf.get("name")
     if configured_name is not None and configured_name != derived_name:
         raise ValueError(
-            "study name must match the derived model_dataset '{}': {}".format(derived_name, study_path)
+            "benchmark name must match the derived model_dataset '{}': {}".format(derived_name, benchmark_path)
         )
 
     return {
-        "path": study_path,
+        "path": benchmark_path,
         "name": derived_name,
         "experiment": experiment_ref,
         "base_conf": dict(base_conf),
         "seeds": [int(seed) for seed in seeds],
-        "search_config": _normalize_search_config(raw_conf.get("search_config"), study_path),
+        "search_config": _normalize_search_config(raw_conf.get("search_config"), benchmark_path),
         "param_space": dict(param_space),
     }
 
 
 def _build_failure_record(conf, error):
     return {
-        "study_name": conf["study_name"],
+        "benchmark_name": conf["benchmark_name"],
         "experiment": conf["experiment_ref"],
         "resume_hit": False,
         "task_name": conf.get("task_name", "mtsf"),
@@ -227,11 +227,11 @@ def _build_failure_record(conf, error):
     }
 
 
-def _build_tune_failure_record(study_name, experiment_ref, search_dir, conf, error):
+def _build_tune_failure_record(benchmark_name, experiment_ref, search_dir, conf, error):
     metrics = _build_failure_record(
         {
             **conf,
-            "study_name": study_name,
+            "benchmark_name": benchmark_name,
             "experiment_ref": experiment_ref,
         },
         "tune failed: {}".format(error),
@@ -240,9 +240,9 @@ def _build_tune_failure_record(study_name, experiment_ref, search_dir, conf, err
     return metrics
 
 
-def _build_study_row(study_name, experiment_ref, metrics, resume_hit):
+def _build_benchmark_row(benchmark_name, experiment_ref, metrics, resume_hit):
     row = {
-        "study_name": study_name,
+        "benchmark_name": benchmark_name,
         "experiment": experiment_ref,
         "resume_hit": bool(resume_hit),
     }
@@ -250,12 +250,12 @@ def _build_study_row(study_name, experiment_ref, metrics, resume_hit):
     return row
 
 
-def _write_runs_report(study_dir, rows):
-    study_dir = Path(study_dir)
-    study_dir.mkdir(parents=True, exist_ok=True)
-    runs_path = study_dir / "runs.csv"
+def _write_runs_report(benchmark_dir, rows):
+    benchmark_dir = Path(benchmark_dir)
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+    runs_path = benchmark_dir / "runs.csv"
     columns = [
-        "study_name",
+        "benchmark_name",
         "experiment",
         "resume_hit",
         "task_name",
@@ -287,10 +287,10 @@ def _write_runs_report(study_dir, rows):
     return runs_path, normalized_rows
 
 
-def _write_summary_report(study_dir, runs_rows):
-    study_dir = Path(study_dir)
-    study_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = study_dir / "summary.csv"
+def _write_summary_report(benchmark_dir, runs_rows):
+    benchmark_dir = Path(benchmark_dir)
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = benchmark_dir / "summary.csv"
     summary_columns = [
         "task_name",
         "model_name",
@@ -397,7 +397,7 @@ def _build_tune_callbacks(conf):
 
 def _tune_train_func(hyper_conf, base_conf, trial_root):
     conf = finalize_runtime_conf(base_conf, overrides=hyper_conf)
-    conf["exp_dir"] = str(_build_study_exp_dir(trial_root, conf["conf_hash"], conf["seed"]))
+    conf["exp_dir"] = str(_build_benchmark_exp_dir(trial_root, conf["conf_hash"], conf["seed"]))
     run_experiment(conf, extra_callbacks=_build_tune_callbacks(conf))
 
 
@@ -469,37 +469,37 @@ def _run_tune_search(param_space, init_conf, search_dir, search_config):
     }
 
 
-def run_study(
-    study_ref,
+def run_benchmark(
+    benchmark_ref,
     runtime_overrides=None,
     dry_run=False,
     resume=True,
     fail_fast=False,
 ):
-    study_conf = load_study(study_ref)
+    benchmark_conf = load_benchmark(benchmark_ref)
     runtime_overrides = dict(runtime_overrides or {})
-    study_dir = _build_study_dir(runtime_overrides.get("save_root", "save"), study_conf["name"])
-    artifact_paths = _build_study_artifact_paths(study_dir)
-    base_conf = dict(study_conf["base_conf"])
-    seeds = list(study_conf["seeds"])
+    benchmark_dir = _build_benchmark_dir(runtime_overrides.get("save_root", "save"), benchmark_conf["name"])
+    artifact_paths = _build_benchmark_artifact_paths(benchmark_dir)
+    base_conf = dict(benchmark_conf["base_conf"])
+    seeds = list(benchmark_conf["seeds"])
 
     if dry_run:
         print(
-            "[dry-run] study={} experiment={} dataset={} hist_len={} pred_len={} tune_seed={} eval_seeds={} param_keys={} study_dir={}".format(
-                study_conf["name"],
-                study_conf["experiment"],
+            "[dry-run] benchmark={} experiment={} dataset={} hist_len={} pred_len={} tune_seed={} eval_seeds={} param_keys={} benchmark_dir={}".format(
+                benchmark_conf["name"],
+                benchmark_conf["experiment"],
                 base_conf["dataset_name"],
                 base_conf["hist_len"],
                 base_conf["pred_len"],
                 seeds[0],
                 seeds,
-                sorted(study_conf["param_space"].keys()),
-                study_dir,
+                sorted(benchmark_conf["param_space"].keys()),
+                benchmark_dir,
             )
         )
         return {
-            "study_name": study_conf["name"],
-            "study_dir": str(study_dir.resolve()),
+            "benchmark_name": benchmark_conf["name"],
+            "benchmark_dir": str(benchmark_dir.resolve()),
             "run_count": len(seeds),
             "rows": [],
             "runs_path": str(artifact_paths["runs_path"].resolve()),
@@ -511,43 +511,43 @@ def run_study(
             "tune_meta_path": str(artifact_paths["tune_meta_path"].resolve()),
         }
 
-    artifact_paths["study_dir"].mkdir(parents=True, exist_ok=True)
+    artifact_paths["benchmark_dir"].mkdir(parents=True, exist_ok=True)
     _save_json(
-        artifact_paths["resolved_study_path"],
+        artifact_paths["resolved_benchmark_path"],
         {
-            "study_name": study_conf["name"],
-            "study_ref": str(study_conf["path"]),
-            "experiment": study_conf["experiment"],
+            "benchmark_name": benchmark_conf["name"],
+            "benchmark_ref": str(benchmark_conf["path"]),
+            "experiment": benchmark_conf["experiment"],
             "seeds": list(seeds),
-            "search_config": dict(study_conf["search_config"]),
-            "param_space_keys": sorted(study_conf["param_space"].keys()),
+            "search_config": dict(benchmark_conf["search_config"]),
+            "param_space_keys": sorted(benchmark_conf["param_space"].keys()),
             "base_conf": {key: _serialize_value(value) for key, value in sorted(base_conf.items())},
         },
     )
 
     if resume and _has_resumeable_search_artifacts(artifact_paths):
-        print("[resume-search] {} -> {}".format(study_conf["name"], artifact_paths["search_dir"]))
+        print("[resume-search] {} -> {}".format(benchmark_conf["name"], artifact_paths["search_dir"]))
         best_params = dict(json.loads(artifact_paths["best_params_path"].read_text(encoding="utf-8")))
         tune_meta = json.loads(artifact_paths["tune_meta_path"].read_text(encoding="utf-8")) if artifact_paths["tune_meta_path"].exists() else {}
     else:
-        print("[search] {} -> {}".format(study_conf["name"], artifact_paths["search_dir"]))
+        print("[search] {} -> {}".format(benchmark_conf["name"], artifact_paths["search_dir"]))
         search_init_conf = {**base_conf, **runtime_overrides, "seed": seeds[0]}
         try:
             search_result = _run_tune_search(
-                param_space=study_conf["param_space"],
+                param_space=benchmark_conf["param_space"],
                 init_conf=search_init_conf,
                 search_dir=artifact_paths["search_dir"],
-                search_config=study_conf["search_config"],
+                search_config=benchmark_conf["search_config"],
             )
             best_params = dict(search_result["best_config"])
             if search_result["status"] == "fixed":
                 _write_placeholder_search_reports(artifact_paths, best_params)
             tune_meta = {
-                "study_name": study_conf["name"],
-                "experiment": study_conf["experiment"],
+                "benchmark_name": benchmark_conf["name"],
+                "experiment": benchmark_conf["experiment"],
                 "search_dir": str(artifact_paths["search_dir"].resolve()),
-                "search_config": dict(study_conf["search_config"]),
-                "param_keys": sorted(study_conf["param_space"].keys()),
+                "search_config": dict(benchmark_conf["search_config"]),
+                "param_keys": sorted(benchmark_conf["param_space"].keys()),
                 "status": "success",
                 "mode": search_result["mode"],
                 "metric": search_result["metric"],
@@ -566,11 +566,11 @@ def run_study(
             _save_json(
                 artifact_paths["tune_meta_path"],
                 {
-                    "study_name": study_conf["name"],
-                    "experiment": study_conf["experiment"],
+                    "benchmark_name": benchmark_conf["name"],
+                    "experiment": benchmark_conf["experiment"],
                     "search_dir": str(artifact_paths["search_dir"].resolve()),
-                    "search_config": dict(study_conf["search_config"]),
-                    "param_keys": sorted(study_conf["param_space"].keys()),
+                    "search_config": dict(benchmark_conf["search_config"]),
+                    "param_keys": sorted(benchmark_conf["param_space"].keys()),
                     "status": "failed",
                     "error": str(error),
                 },
@@ -582,16 +582,16 @@ def run_study(
                     overrides={
                         **runtime_overrides,
                         "seed": seed,
-                        "exp_dir": str(_build_study_exp_dir(study_dir, "search_failed", seed)),
+                        "exp_dir": str(_build_benchmark_exp_dir(benchmark_dir, "search_failed", seed)),
                     },
                 )
                 rows.append(
-                    _build_study_row(
-                        study_conf["name"],
-                        study_conf["experiment"],
+                    _build_benchmark_row(
+                        benchmark_conf["name"],
+                        benchmark_conf["experiment"],
                         _build_tune_failure_record(
-                            study_conf["name"],
-                            study_conf["experiment"],
+                            benchmark_conf["name"],
+                            benchmark_conf["experiment"],
                             artifact_paths["search_dir"],
                             failed_conf,
                             error,
@@ -599,13 +599,13 @@ def run_study(
                         resume_hit=False,
                     )
                 )
-            runs_path, runs_rows = _write_runs_report(study_dir, rows)
-            summary_path = _write_summary_report(study_dir, runs_rows)
+            runs_path, runs_rows = _write_runs_report(benchmark_dir, rows)
+            summary_path = _write_summary_report(benchmark_dir, runs_rows)
             if fail_fast:
-                raise RuntimeError("study stopped because fail_fast=1") from error
+                raise RuntimeError("benchmark stopped because fail_fast=1") from error
             return {
-                "study_name": study_conf["name"],
-                "study_dir": str(study_dir.resolve()),
+                "benchmark_name": benchmark_conf["name"],
+                "benchmark_dir": str(benchmark_dir.resolve()),
                 "run_count": len(rows),
                 "rows": rows,
                 "runs_path": str(runs_path.resolve()),
@@ -621,24 +621,24 @@ def run_study(
     stop_error = None
     for seed in seeds:
         conf = finalize_runtime_conf(base_conf, overrides={**runtime_overrides, **best_params, "seed": seed})
-        conf["study_name"] = study_conf["name"]
-        conf["experiment_ref"] = study_conf["experiment"]
-        conf["exp_dir"] = str(_build_study_exp_dir(study_dir, conf["conf_hash"], conf["seed"]))
+        conf["benchmark_name"] = benchmark_conf["name"]
+        conf["experiment_ref"] = benchmark_conf["experiment"]
+        conf["exp_dir"] = str(_build_benchmark_exp_dir(benchmark_dir, conf["conf_hash"], conf["seed"]))
 
         existing_metrics = load_saved_metrics(conf) if resume else None
         if existing_metrics and existing_metrics.get("status") == "success":
-            print("[resume] {} seed={} -> {}".format(study_conf["name"], conf["seed"], conf["exp_dir"]))
+            print("[resume] {} seed={} -> {}".format(benchmark_conf["name"], conf["seed"], conf["exp_dir"]))
             rows.append(
-                _build_study_row(
-                    study_conf["name"],
-                    study_conf["experiment"],
+                _build_benchmark_row(
+                    benchmark_conf["name"],
+                    benchmark_conf["experiment"],
                     existing_metrics,
                     resume_hit=True,
                 )
             )
             continue
 
-        print("[run] {} seed={} -> {}".format(study_conf["name"], conf["seed"], conf["exp_dir"]))
+        print("[run] {} seed={} -> {}".format(benchmark_conf["name"], conf["seed"], conf["exp_dir"]))
         try:
             result = run_experiment(conf)
             metrics = result if isinstance(result, dict) else load_saved_metrics(conf)
@@ -666,11 +666,11 @@ def run_study(
                 }
         except Exception as error:
             metrics = _build_failure_record(conf, error)
-            print("[failed] {} seed={} error={}".format(study_conf["name"], conf["seed"], error))
+            print("[failed] {} seed={} error={}".format(benchmark_conf["name"], conf["seed"], error))
             rows.append(
-                _build_study_row(
-                    study_conf["name"],
-                    study_conf["experiment"],
+                _build_benchmark_row(
+                    benchmark_conf["name"],
+                    benchmark_conf["experiment"],
                     metrics,
                     resume_hit=False,
                 )
@@ -681,19 +681,19 @@ def run_study(
             continue
 
         rows.append(
-            _build_study_row(
-                study_conf["name"],
-                study_conf["experiment"],
+            _build_benchmark_row(
+                benchmark_conf["name"],
+                benchmark_conf["experiment"],
                 metrics,
                 resume_hit=False,
             )
         )
 
-    runs_path, runs_rows = _write_runs_report(study_dir, rows)
-    summary_path = _write_summary_report(study_dir, runs_rows)
+    runs_path, runs_rows = _write_runs_report(benchmark_dir, rows)
+    summary_path = _write_summary_report(benchmark_dir, runs_rows)
     result = {
-        "study_name": study_conf["name"],
-        "study_dir": str(study_dir.resolve()),
+        "benchmark_name": benchmark_conf["name"],
+        "benchmark_dir": str(benchmark_dir.resolve()),
         "run_count": len(rows),
         "rows": rows,
         "runs_path": str(runs_path.resolve()),
@@ -705,5 +705,5 @@ def run_study(
         "tune_meta_path": str(artifact_paths["tune_meta_path"].resolve()),
     }
     if stop_error is not None:
-        raise RuntimeError("study stopped because fail_fast=1") from stop_error
+        raise RuntimeError("benchmark stopped because fail_fast=1") from stop_error
     return result

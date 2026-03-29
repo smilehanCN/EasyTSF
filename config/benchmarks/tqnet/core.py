@@ -1,7 +1,7 @@
 from ray import tune
 
 
-study = {
+benchmark = {
     "name": "tqnet_electricity",
     "seeds": [0, 1, 2],
     "search_config": {

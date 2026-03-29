@@ -8,7 +8,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_ROOT = PROJECT_ROOT / "config"
 EXPERIMENT_CONFIG_DIR = CONFIG_ROOT / "experiments"
-STUDY_CONFIG_DIR = CONFIG_ROOT / "studies"
+BENCHMARK_CONFIG_DIR = CONFIG_ROOT / "benchmarks"
 CONFIG_SECTIONS = ("model", "data", "train", "runtime")
 DEFAULT_TASK_NAME = "mtsf"
 REQUIRED_EXPERIMENT_KEYS = {

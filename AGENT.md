@@ -5,7 +5,7 @@ This repository is optimized for rapid multivariate time-series forecasting rese
 ## Mission
 
 - Support fast model iteration on the maintained `mtsf` path.
-- Keep experiment and study workflow reproducible and easy to resume.
+- Keep experiment and benchmark workflow reproducible and easy to resume.
 - Delete dead compatibility code instead of preserving old abstractions.
 
 ## Current Boundaries
@@ -20,7 +20,7 @@ This repository is optimized for rapid multivariate time-series forecasting rese
 ### Config
 
 - `config/experiments/<model_id>/*.yaml`: runnable experiment presets
-- `config/studies/<model_id>/*.py`: benchmark studies
+- `config/benchmarks/<model_id>/*.py`: benchmark configs
 
 Config merge priority is fixed:
 
@@ -54,7 +54,7 @@ Every experiment preset must be self-contained and explicitly set `runtime.task_
 ### Workflow
 
 - `easytsf/workflow/experiment.py` contains single-experiment orchestration.
-- `easytsf/workflow/study.py` contains benchmark orchestration.
+- `easytsf/workflow/benchmark.py` contains benchmark orchestration.
 - Keep workflow logic out of `data`, `task`, and `model`.
 
 ## Change Guidelines

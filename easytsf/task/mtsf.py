@@ -1,6 +1,5 @@
 import importlib
 import inspect
-import warnings
 from pathlib import Path
 
 import lightning.pytorch as L
@@ -11,7 +10,7 @@ import torch.optim.lr_scheduler as lrs
 from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError
 
 from easytsf.model import get_model_contract
-from easytsf.scaler import StandardScaler
+from easytsf.data.scaler import StandardScaler
 
 
 class MTSFTask(L.LightningModule):

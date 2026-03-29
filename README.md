@@ -6,7 +6,7 @@ EasyTSF 是一个面向多变量时序预测研究的轻量实验框架，目标
 
 - 多变量时序预测任务 `mtsf`
 - 单实验 preset
-- 批量 benchmark `study`
+- 批量评测 `benchmark`
 - 直接可运行的 workflow API
 
 不再兼容 `grid` 数据路径、`npz` 数据布局、graph side input 或通用 TSF 抽象。
@@ -14,11 +14,11 @@ EasyTSF 是一个面向多变量时序预测研究的轻量实验框架，目标
 ## 当前结构
 
 - `config/experiments/<model_id>/*.yaml`：单实验 preset
-- `config/studies/<model_id>/*.py`：批量 benchmark 声明
+- `config/benchmarks/<model_id>/*.py`：批量 benchmark 声明
 - `easytsf/data/`：`MTSDataModule` 和 sequence-only 数据加载逻辑
 - `easytsf/task/`：`MTSFTask` 与 task registry
 - `easytsf/model/`：模型实现
-- `easytsf/workflow/`：experiment / study 的配置加载和执行
+- `easytsf/workflow/`：experiment / benchmark 的配置加载和执行
 
 ## 环境
 
@@ -68,12 +68,12 @@ from easytsf.workflow import run_evaluation
 run_evaluation(conf, ckpt_path="best")
 ```
 
-批量 benchmark：
+批量评测：
 
 ```python
-from easytsf.workflow import run_study
+from easytsf.workflow import run_benchmark
 
-result = run_study(
+result = run_benchmark(
     "tqnet/core",
     runtime_overrides={
         "data_root": "dataset",
@@ -83,7 +83,7 @@ result = run_study(
     dry_run=False,
     resume=True,
 )
-print(result["study_dir"])
+print(result["benchmark_dir"])
 ```
 
 ## 数据格式
@@ -146,9 +146,9 @@ forward(var_x, marker_x, marker_y)
 
 experiment preset 是唯一的静态研究配方；`data_root`、`save_root`、`seed`、`devices`、`accelerator` 这类机器或运行环境参数继续通过运行时 override 注入。
 
-### `study`
+### `benchmark`
 
-`study` 是一组 `experiment` 的批量执行与结果汇总声明。它只负责编排：
+`benchmark` 是一组 `experiment` 的批量执行与结果汇总声明。它只负责编排：
 
 - 用哪个 experiment
 - 跑哪些 seed

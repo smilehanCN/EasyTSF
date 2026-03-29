@@ -10,7 +10,7 @@
 
 - `MTSFTask`
 - `experiment`
-- `study`
+- `benchmark`
 - task-aware `model.forward(...)`
 
 不新增 grid task、图结构 task、插件系统、AutoModel 或更大的注册分发树。
@@ -28,16 +28,16 @@
 1. 接入模型
 2. 跑通单实验
 3. 固化为 experiment preset
-4. 进入 study 做多 seed / 多数据集汇总
+4. 进入 benchmark 做多 seed / 多数据集汇总
 
 ## 2. 目录与职责
 
 - `easytsf/model/`：模型本体与模型私有 helper
 - `easytsf/task/`：任务层与训练逻辑
 - `easytsf/data/`：sequence 数据读取、时间戳恢复、滑窗和 dataloader
-- `easytsf/workflow/`：experiment / study 编排
+- `easytsf/workflow/`：experiment / benchmark 编排
 - `config/experiments/`：单实验预设
-- `config/studies/`：批量评测声明
+- `config/benchmarks/`：批量评测声明
 
 不要把 workflow 逻辑回灌到 model / task / data，也不要让 data 层承担“从数据反推配置真相”的职责。
 
