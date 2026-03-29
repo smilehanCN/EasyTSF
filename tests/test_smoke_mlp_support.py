@@ -30,6 +30,14 @@ def _build_basic_ts_timestamps(length, freq, descriptions, offset=0):
 
 
 class SequenceSmokeTestCase(unittest.TestCase):
+    @staticmethod
+    def _capture_logged_value(value):
+        if hasattr(value, "compute") and callable(value.compute):
+            value = value.compute()
+        if isinstance(value, torch.Tensor):
+            return value.detach().clone()
+        return value
+
     def _make_dataset_dir(self, root, dataset_name):
         dataset_dir = Path(root) / dataset_name
         dataset_dir.mkdir(parents=True, exist_ok=True)
@@ -153,7 +161,7 @@ class SequenceSmokeTestCase(unittest.TestCase):
             self.assertEqual(tuple(batch["inputs_timestamps"].shape), (2, 4, 2))
             self.assertEqual(tuple(batch["targets_timestamps"].shape), (2, 2, 2))
 
-    def test_sequence_datamodule_computes_train_split_standardization_stats(self):
+    def test_mtsf_task_computes_train_split_standardization_stats_without_hparams_pollution(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             train_split = np.array(
                 [
@@ -183,21 +191,18 @@ class SequenceSmokeTestCase(unittest.TestCase):
                 descriptions=("time of day",),
             )
 
-            datamodule = MTSDataModule(**self._make_conf(tmpdir, "stats_case"))
-            mean, std = datamodule.get_standardization_stats()
-            expected_mean = train_split.mean(axis=0, keepdims=True)
-            expected_std = train_split.std(axis=0, keepdims=True)
+            experiment = build_experiment(self._make_conf(tmpdir, "stats_case"), training=False)
+            expected_mean = torch.from_numpy(train_split.mean(axis=0, keepdims=True))
+            expected_std = torch.from_numpy(train_split.std(axis=0, keepdims=True))
 
-            self.assertEqual(mean.shape, (1, 2))
-            self.assertEqual(std.shape, (1, 2))
-            np.testing.assert_allclose(mean, expected_mean)
-            np.testing.assert_allclose(std, expected_std)
-
-            mean[...] = -999.0
-            std[...] = -999.0
-            fresh_mean, fresh_std = datamodule.get_standardization_stats()
-            np.testing.assert_allclose(fresh_mean, expected_mean)
-            np.testing.assert_allclose(fresh_std, expected_std)
+            self.assertEqual(tuple(experiment.task.scaler.mean.shape), (1, 2))
+            self.assertEqual(tuple(experiment.task.scaler.std.shape), (1, 2))
+            torch.testing.assert_close(experiment.task.scaler.mean, expected_mean)
+            torch.testing.assert_close(experiment.task.scaler.std, expected_std)
+            self.assertFalse(hasattr(experiment.task, "data_mean"))
+            self.assertFalse(hasattr(experiment.task, "data_std"))
+            self.assertNotIn("data_mean", experiment.task.hparams)
+            self.assertNotIn("data_std", experiment.task.hparams)
 
     def test_sequence_datamodule_rejects_timestamp_description_mismatch(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -234,19 +239,6 @@ class SequenceSmokeTestCase(unittest.TestCase):
             self.assertEqual(loss.dim(), 0)
             self.assertTrue(torch.isfinite(loss).item())
 
-    def test_build_experiment_injects_standardization_stats_without_hparams_pollution(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            variable = np.arange(28 * 2, dtype=np.float32).reshape(28, 2)
-            self._write_sequence_dataset(tmpdir, "stats_injection_case", variable, descriptions=("time of day",))
-
-            experiment = build_experiment(self._make_conf(tmpdir, "stats_injection_case"), training=False)
-            expected_mean, expected_std = experiment.datamodule.get_standardization_stats()
-
-            torch.testing.assert_close(experiment.task.data_mean, torch.from_numpy(expected_mean))
-            torch.testing.assert_close(experiment.task.data_std, torch.from_numpy(expected_std))
-            self.assertNotIn("data_mean", experiment.task.hparams)
-            self.assertNotIn("data_std", experiment.task.hparams)
-
     def test_mtsf_task_preprocess_and_postprocess_roundtrip_standardization(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             variable = np.arange(28 * 2, dtype=np.float32).reshape(28, 2)
@@ -254,21 +246,23 @@ class SequenceSmokeTestCase(unittest.TestCase):
 
             experiment = build_experiment(self._make_conf(tmpdir, "roundtrip_case"), training=False)
             batch = next(iter(experiment.datamodule.val_dataloader()))
-            expected_mean = experiment.task.data_mean
-            expected_std = experiment.task.data_std
+            expected_mean = experiment.task.scaler.mean
+            expected_std = experiment.task.scaler.std
 
-            prepared = experiment.task.preprocess_batch(batch)
+            prepared_inputs, prepared_inputs_timestamps, prepared_targets, prepared_targets_timestamps = (
+                experiment.task.preprocess_batch(batch)
+            )
             expected_inputs = (batch["inputs"] - expected_mean) / expected_std
             expected_targets = (batch["targets"] - expected_mean) / expected_std
 
-            torch.testing.assert_close(prepared["inputs"], expected_inputs)
-            torch.testing.assert_close(prepared["targets"], expected_targets)
-            torch.testing.assert_close(prepared["inputs_timestamps"], batch["inputs_timestamps"])
-            torch.testing.assert_close(prepared["targets_timestamps"], batch["targets_timestamps"])
+            torch.testing.assert_close(prepared_inputs, expected_inputs)
+            torch.testing.assert_close(prepared_targets, expected_targets)
+            torch.testing.assert_close(prepared_inputs_timestamps, batch["inputs_timestamps"])
+            torch.testing.assert_close(prepared_targets_timestamps, batch["targets_timestamps"])
 
             restored_prediction, restored_label = experiment.task.postprocess_outputs(
-                prepared["targets"],
-                prepared["targets"],
+                prepared_targets,
+                prepared_targets,
             )
             torch.testing.assert_close(restored_prediction, batch["targets"])
             torch.testing.assert_close(restored_label, batch["targets"])
@@ -303,14 +297,19 @@ class SequenceSmokeTestCase(unittest.TestCase):
             original_experiment = build_experiment(self._make_conf(tmpdir, "metric_space_case"), training=False)
             original_experiment.task._forward_with_context = lambda batch: {"prediction": prediction, "label": label}
             original_logs = {}
-            original_experiment.task.log = lambda name, value, **kwargs: original_logs.setdefault(name, value.detach().clone())
+            original_experiment.task.log = lambda name, value, **kwargs: original_logs.setdefault(
+                name,
+                self._capture_logged_value(value),
+            )
             original_experiment.task.test_step(batch=None, batch_idx=0)
 
             denorm_prediction, denorm_label = original_experiment.task.postprocess_outputs(prediction, label)
             expected_original_mae = torch.mean(torch.abs(denorm_prediction - denorm_label))
             expected_original_mse = torch.mean((denorm_prediction - denorm_label) ** 2)
+            expected_original_rmse = torch.sqrt(expected_original_mse)
             torch.testing.assert_close(original_logs["test/mae"], expected_original_mae)
             torch.testing.assert_close(original_logs["test/mse"], expected_original_mse)
+            torch.testing.assert_close(original_logs["test/rmse"], expected_original_rmse)
 
             normalized_conf = self._make_conf(
                 tmpdir,
@@ -322,27 +321,31 @@ class SequenceSmokeTestCase(unittest.TestCase):
             normalized_logs = {}
             normalized_experiment.task.log = lambda name, value, **kwargs: normalized_logs.setdefault(
                 name,
-                value.detach().clone(),
+                self._capture_logged_value(value),
             )
             normalized_experiment.task.test_step(batch=None, batch_idx=0)
 
             expected_normalized_mae = torch.mean(torch.abs(prediction - label))
             expected_normalized_mse = torch.mean((prediction - label) ** 2)
+            expected_normalized_rmse = torch.sqrt(expected_normalized_mse)
             torch.testing.assert_close(normalized_logs["test/mae"], expected_normalized_mae)
             torch.testing.assert_close(normalized_logs["test/mse"], expected_normalized_mse)
+            torch.testing.assert_close(normalized_logs["test/rmse"], expected_normalized_rmse)
 
-    def test_standardization_stats_persist_across_state_dict_roundtrip(self):
+    def test_mtsf_task_recomputes_standardization_stats_outside_state_dict(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             variable = np.arange(28 * 2, dtype=np.float32).reshape(28, 2)
             self._write_sequence_dataset(tmpdir, "state_dict_case", variable, descriptions=("time of day",))
 
             conf = self._make_conf(tmpdir, "state_dict_case")
             experiment = build_experiment(conf, training=False)
+            self.assertNotIn("data_mean", experiment.task.state_dict())
+            self.assertNotIn("data_std", experiment.task.state_dict())
             restored_task = experiment.task.__class__(**conf)
             restored_task.load_state_dict(experiment.task.state_dict())
 
-            torch.testing.assert_close(restored_task.data_mean, experiment.task.data_mean)
-            torch.testing.assert_close(restored_task.data_std, experiment.task.data_std)
+            torch.testing.assert_close(restored_task.scaler.mean, experiment.task.scaler.mean)
+            torch.testing.assert_close(restored_task.scaler.std, experiment.task.scaler.std)
 
     def test_mtsf_tqnet_smoke_with_explicit_time_feature_descriptions(self):
         with tempfile.TemporaryDirectory() as tmpdir:

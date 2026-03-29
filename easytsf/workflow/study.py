@@ -134,7 +134,8 @@ def load_saved_metrics(conf):
 
     mae = last_logged_value("test/mae")
     mse = last_logged_value("test/mse")
-    if mae is None and mse is None:
+    rmse = last_logged_value("test/rmse")
+    if mae is None and mse is None and rmse is None:
         return None
     try:
         ckpt_path = resolve_ckpt_path(conf, "best")
@@ -156,6 +157,7 @@ def load_saved_metrics(conf):
         "val_metric_value": last_logged_value(conf.get("val_metric")),
         "mae": mae,
         "mse": mse,
+        "rmse": rmse,
     }
 
 
@@ -265,6 +267,7 @@ def _write_runs_report(study_dir, rows):
         "status",
         "mae",
         "mse",
+        "rmse",
         "val_metric_name",
         "val_metric_value",
         "conf_hash",
@@ -298,6 +301,8 @@ def _write_summary_report(study_dir, runs_rows):
         "mae_std",
         "mse_mean",
         "mse_std",
+        "rmse_mean",
+        "rmse_std",
         "num_seeds",
     ]
     grouped = {}
@@ -305,17 +310,20 @@ def _write_summary_report(study_dir, runs_rows):
         if row.get("status") != "success":
             continue
         group_key = (row["task_name"], row["model_name"], row["dataset_name"], row["hist_len"], row["pred_len"])
-        grouped.setdefault(group_key, {"mae": [], "mse": []})
+        grouped.setdefault(group_key, {"mae": [], "mse": [], "rmse": []})
         if row.get("mae") is not None:
             grouped[group_key]["mae"].append(float(row["mae"]))
         if row.get("mse") is not None:
             grouped[group_key]["mse"].append(float(row["mse"]))
+        if row.get("rmse") is not None:
+            grouped[group_key]["rmse"].append(float(row["rmse"]))
 
     summary_rows = []
     for group_key in sorted(grouped):
         metric_group = grouped[group_key]
         mae_values = metric_group["mae"]
         mse_values = metric_group["mse"]
+        rmse_values = metric_group["rmse"]
         summary_rows.append(
             {
                 "task_name": group_key[0],
@@ -327,6 +335,8 @@ def _write_summary_report(study_dir, runs_rows):
                 "mae_std": statistics.pstdev(mae_values) if len(mae_values) > 1 else 0.0 if mae_values else None,
                 "mse_mean": statistics.mean(mse_values) if mse_values else None,
                 "mse_std": statistics.pstdev(mse_values) if len(mse_values) > 1 else 0.0 if mse_values else None,
+                "rmse_mean": statistics.mean(rmse_values) if rmse_values else None,
+                "rmse_std": statistics.pstdev(rmse_values) if len(rmse_values) > 1 else 0.0 if rmse_values else None,
                 "num_seeds": len(mae_values),
             }
         )

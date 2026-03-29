@@ -77,23 +77,12 @@ def _prepare_training_conf(conf, datamodule):
     return resolved_conf
 
 
-def _inject_standardization_stats(task, datamodule):
-    if not hasattr(datamodule, "get_standardization_stats"):
-        raise AttributeError("{} must define get_standardization_stats()".format(datamodule.__class__.__name__))
-    if not hasattr(task, "set_standardization_stats"):
-        raise AttributeError("{} must define set_standardization_stats()".format(task.__class__.__name__))
-
-    mean, std = datamodule.get_standardization_stats()
-    task.set_standardization_stats(mean, std)
-
-
 def build_experiment(conf, training=False, extra_callbacks=None):
     resolved_conf = _ensure_runtime_conf(conf)
     task_entry = get_task_registry_entry(resolved_conf.get("task_name", DEFAULT_TASK_NAME))
     datamodule = task_entry.datamodule_cls(**resolved_conf)
     runtime_conf = _prepare_training_conf(resolved_conf, datamodule) if training else dict(resolved_conf)
     task = task_entry.task_cls(**runtime_conf)
-    _inject_standardization_stats(task, datamodule)
     trainer = build_trainer(runtime_conf, extra_callbacks=extra_callbacks) if training else None
     return ExperimentBundle(conf=runtime_conf, datamodule=datamodule, task=task, trainer=trainer)
 
@@ -150,6 +139,7 @@ def _collect_metrics(conf, trainer):
         "val_metric_value": callback_metrics.get(conf.get("val_metric")),
         "mae": callback_metrics.get("test/mae"),
         "mse": callback_metrics.get("test/mse"),
+        "rmse": callback_metrics.get("test/rmse"),
     }
 
 

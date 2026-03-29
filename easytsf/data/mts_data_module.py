@@ -5,8 +5,6 @@ import lightning.pytorch as pl
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 
-from easytsf.scaler import StandardScaler
-
 
 def load_dataset_meta(dataset_dir):
     meta_path = Path(dataset_dir) / "meta.json"
@@ -134,8 +132,6 @@ class MTSDataModule(pl.LightningDataModule):
             variable = load_npy_array(data_path, use_mmap=self.use_mmap, dtype=np.float32)
             self.split_variable[split_name] = variable
 
-        self._fit_standardization_stats()
-
         timestamp_descriptions = self.meta["timestamps_description"]
 
         configured_time_feature_descriptions = self.config.get("time_feature_descriptions")
@@ -154,33 +150,6 @@ class MTSDataModule(pl.LightningDataModule):
             raw_timestamps = load_npy_array(timestamp_path, use_mmap=self.use_mmap, dtype=np.float32)
             time_feature = restore_basic_ts_timestamps(raw_timestamps, timestamp_descriptions, freq)
             self.split_time_feature[split_name] = time_feature
-
-    def _fit_standardization_stats(self):
-        train_variable = np.asarray(self.split_variable["train"], dtype=np.float32)
-        if train_variable.ndim != 2:
-            raise ValueError(
-                "train split must be a 2D array shaped [length, var_num], but received {}".format(tuple(train_variable.shape))
-            )
-        if train_variable.shape[1] != self.var_num:
-            raise ValueError(
-                "train split variable dimension {} does not match config var_num {}".format(
-                    int(train_variable.shape[1]),
-                    self.var_num,
-                )
-            )
-
-        expected_shape = (1, self.var_num)
-        self.standardization_scaler = StandardScaler.fit(train_variable, null_val=None, norm_each_channel=True)
-        if self.standardization_scaler.shape != expected_shape:
-            raise ValueError(
-                "standardization stats must have shape {}, but received {}".format(
-                    expected_shape,
-                    self.standardization_scaler.shape,
-                )
-            )
-
-    def get_standardization_stats(self):
-        return self.standardization_scaler.export_numpy()
 
     def _build_split_dataset(self, split_name):
         return BasicTSSequenceDataset(

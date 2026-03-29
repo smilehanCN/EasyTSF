@@ -1,11 +1,14 @@
 import importlib
 import inspect
 import warnings
+from pathlib import Path
 
 import lightning.pytorch as L
+import numpy as np
 import torch
-import torch.nn.functional as F
+import torch.nn as nn
 import torch.optim.lr_scheduler as lrs
+from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError
 
 from easytsf.model import get_model_contract
 from easytsf.scaler import StandardScaler
@@ -15,44 +18,18 @@ class MTSFTask(L.LightningModule):
     def __init__(self, **kwargs):
         super().__init__()
         self.save_hyperparameters()
-        self.register_buffer("data_mean", torch.zeros((1, int(self.hparams.var_num)), dtype=torch.float32), persistent=True)
-        self.register_buffer("data_std", torch.ones((1, int(self.hparams.var_num)), dtype=torch.float32), persistent=True)
-        self.scaler = StandardScaler(self.data_mean, self.data_std)
+        self.scaler = self._build_scaler()
         self.model = self._build_model()
-        self.loss_function = F.mse_loss
-        self.mae_loss_func = F.l1_loss
-        self.mse_loss_func = F.mse_loss
-
-    @staticmethod
-    def _prepare_batch(batch):
-        if isinstance(batch, dict):
-            inputs = batch["inputs"]
-            targets = batch["targets"]
-            inputs_timestamps = batch.get("inputs_timestamps")
-            targets_timestamps = batch.get("targets_timestamps")
-
-            if inputs_timestamps is None:
-                inputs_timestamps = inputs.new_empty((inputs.shape[0], inputs.shape[1], 0))
-            if targets_timestamps is None:
-                targets_timestamps = targets.new_empty((targets.shape[0], targets.shape[1], 0))
-            tensors = (inputs, inputs_timestamps, targets, targets_timestamps)
-        else:
-            tensors = batch
-        return tuple(tensor if tensor.dtype == torch.float32 else tensor.float() for tensor in tensors)
+        self.loss_function = nn.MSELoss()
+        self.test_mae = MeanAbsoluteError()
+        self.test_mse = MeanSquaredError()
+        self.test_rmse = MeanSquaredError(squared=False)
 
     def _build_model(self):
         model_name = self.hparams.model_name
         contract = get_model_contract(model_name)
         contract.validate(getattr(self.hparams, "task_name", "mtsf"))
-        if contract.is_legacy:
-            warnings.warn(
-                "model '{}' is marked as legacy and is outside the maintained preset/smoke matrix. {}".format(
-                    model_name,
-                    contract.note,
-                ),
-                RuntimeWarning,
-                stacklevel=2,
-            )
+
         module_name = contract.module_name
         module = importlib.import_module(".{}".format(module_name), package="easytsf.model")
         if not hasattr(module, "Model"):
@@ -69,39 +46,32 @@ class MTSFTask(L.LightningModule):
                 raise ValueError("config must define required model argument '{}' for {}".format(name, model_name))
         return model_cls(**model_args)
 
+    def _build_scaler(self):
+        dataset_dir = Path(self.hparams.data_root).expanduser() / str(self.hparams.dataset_name)
+        mmap_mode = "r" if bool(getattr(self.hparams, "use_mmap", False)) else None
+        train_variable = np.load(dataset_dir / "train_data.npy", mmap_mode=mmap_mode, allow_pickle=False)
+        return StandardScaler.fit(train_variable)
+
     def _apply(self, fn):
         super()._apply(fn)
-        self.scaler = StandardScaler(self.data_mean, self.data_std)
+        self.scaler.set_stats(fn(self.scaler.mean), fn(self.scaler.std))
         return self
 
-    def set_standardization_stats(self, mean, std):
-        scaler = StandardScaler(mean, std)
-        expected_shape = tuple(self.data_mean.shape)
-        if scaler.shape != expected_shape:
-            raise ValueError(
-                "standardization stats must have shape {}, but received {}".format(
-                    expected_shape,
-                    scaler.shape,
-                )
-            )
-
-        self.data_mean.copy_(torch.as_tensor(scaler.mean, dtype=self.data_mean.dtype, device=self.data_mean.device))
-        self.data_std.copy_(torch.as_tensor(scaler.std, dtype=self.data_std.dtype, device=self.data_std.device))
-
-    @staticmethod
-    def _resolve_metric_space(metric_space):
-        if metric_space not in {"original", "normalized"}:
-            raise ValueError("test_metric_space must be 'original' or 'normalized', but received {!r}".format(metric_space))
-        return metric_space
-
     def preprocess_batch(self, batch):
-        var_x, marker_x, var_y, marker_y = self._prepare_batch(batch)
-        return {
-            "inputs": self.scaler.transform(var_x),
-            "inputs_timestamps": marker_x,
-            "targets": self.scaler.transform(var_y),
-            "targets_timestamps": marker_y,
-        }
+        var_x = batch["inputs"]
+        marker_x = batch.get("inputs_timestamps")
+        var_y = batch["targets"]
+        marker_y = batch.get("targets_timestamps")
+        tensors = (var_x, marker_x, var_y, marker_y)
+        var_x, marker_x, var_y, marker_y = tuple(
+            tensor if tensor.dtype == torch.float32 else tensor.float() for tensor in tensors
+        )
+        return (
+            self.scaler.transform(var_x),
+            marker_x,
+            self.scaler.transform(var_y),
+            marker_y,
+        )
 
     def postprocess_outputs(self, prediction, label, targets_mask=None):
         return (
@@ -109,51 +79,16 @@ class MTSFTask(L.LightningModule):
             self.scaler.inverse_transform(label, mask=targets_mask),
         )
 
-    def _run_model(self, var_x, marker_x, marker_y):
-        return self.model(var_x, marker_x, marker_y)
+    def _forward(self, batch):
+        var_x, marker_x, var_y, marker_y = self.preprocess_batch(batch)
+        label = var_y[:, -self.hparams.pred_len :, ...]
 
-    def _validate_model_inputs(self, var_x):
-        del var_x
-
-    def _validate_prediction_shape(self, prediction, label):
-        if prediction.shape != label.shape:
-            raise ValueError(
-                "{} model output shape {} does not match label shape {}".format(
-                    self.__class__.__name__,
-                    tuple(prediction.shape),
-                    tuple(label.shape),
-                )
-            )
-
-    def _forward_with_context(self, batch):
-        prepared_batch = self.preprocess_batch(batch)
-        var_x = prepared_batch["inputs"]
-        marker_x = prepared_batch["inputs_timestamps"]
-        label = prepared_batch["targets"][:, -self.hparams.pred_len:, ...]
-        marker_y = prepared_batch["targets_timestamps"]
-
-        self._validate_model_inputs(var_x)
-        prediction = self._run_model(var_x, marker_x, marker_y)
-        self._validate_prediction_shape(prediction, label)
-        return {
-            "prediction": prediction,
-            "label": label,
-        }
-
-    def forward(self, batch, batch_idx):
-        del batch_idx
-        outputs = self._forward_with_context(batch)
-        return self.postprocess_outputs(outputs["prediction"], outputs["label"])
+        prediction = self.model(var_x, marker_x, marker_y)
+        return prediction, label
 
     def training_step(self, batch, batch_idx):
-        del batch_idx
-        outputs = self._forward_with_context(batch)
-        prediction = outputs["prediction"]
-        label = outputs["label"]
-        if getattr(self.hparams, "use_mix_loss", False):
-            loss = 0.5 * self.mae_loss_func(prediction, label) + 0.5 * self.mse_loss_func(prediction, label)
-        else:
-            loss = self.loss_function(prediction, label)
+        prediction, label = self._forward(batch)
+        loss = self.loss_function(prediction, label)
         aux_loss = self.model.get_aux_loss() if hasattr(self.model, "get_aux_loss") else None
         if aux_loss is not None:
             loss = loss + getattr(self.hparams, "aux_loss_weight", 1.0) * aux_loss
@@ -162,24 +97,22 @@ class MTSFTask(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        del batch_idx
-        outputs = self._forward_with_context(batch)
-        loss = self.loss_function(outputs["prediction"], outputs["label"])
+        prediction, label = self._forward(batch)
+        loss = self.loss_function(prediction, label)
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
     def test_step(self, batch, batch_idx):
-        del batch_idx
-        outputs = self._forward_with_context(batch)
-        metric_space = self._resolve_metric_space(getattr(self.hparams, "test_metric_space", "original"))
+        prediction, label = self._forward(batch)
+        metric_space = getattr(self.hparams, "test_metric_space", "original")
         if metric_space == "original":
-            prediction, label = self.postprocess_outputs(outputs["prediction"], outputs["label"])
-        else:
-            prediction, label = outputs["prediction"], outputs["label"]
-        mae = self.mae_loss_func(prediction, label)
-        mse = self.mse_loss_func(prediction, label)
-        self.log("test/mae", mae, on_step=False, on_epoch=True, sync_dist=True)
-        self.log("test/mse", mse, on_step=False, on_epoch=True, sync_dist=True)
+            prediction, label = self.postprocess_outputs(prediction, label)
+        self.test_mae.update(prediction, label)
+        self.test_mse.update(prediction, label)
+        self.test_rmse.update(prediction, label)
+        self.log("test/mae", self.test_mae, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("test/mse", self.test_mse, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("test/rmse", self.test_rmse, on_step=False, on_epoch=True, sync_dist=True)
 
     def configure_optimizers(self):
         if hasattr(self.model, "get_param_groups"):
@@ -213,21 +146,6 @@ class MTSFTask(L.LightningModule):
                 ),
                 "monitor": self.hparams.val_metric,
             }
-        elif self.hparams.lr_scheduler == "WSD":
-            if not self.hparams.lr_warmup_end_epochs < self.hparams.lr_stable_end_epochs < self.hparams.max_epochs:
-                raise ValueError("WSD scheduler requires lr_warmup_end_epochs < lr_stable_end_epochs < max_epochs")
-
-            def wsd_lr_lambda(epoch):
-                if epoch < self.hparams.lr_warmup_end_epochs:
-                    return (epoch + 1) / self.hparams.lr_warmup_end_epochs
-                if epoch < self.hparams.lr_stable_end_epochs:
-                    return 1.0
-                return 1.0 - (
-                    (epoch + 1 - self.hparams.lr_stable_end_epochs)
-                    / (self.hparams.max_epochs - self.hparams.lr_stable_end_epochs + 1)
-                )
-
-            scheduler = {"scheduler": lrs.LambdaLR(optimizer, lr_lambda=wsd_lr_lambda)}
         elif self.hparams.lr_scheduler == "OneCycleLR":
             steps_per_epoch = getattr(self.hparams, "steps_per_epoch", None)
             if steps_per_epoch is None:
@@ -243,13 +161,6 @@ class MTSFTask(L.LightningModule):
                 "interval": "step",
                 "frequency": 1,
             }
-        elif self.hparams.lr_scheduler == "CycleNetLRS":
-            def lr_lambda(epoch):
-                if epoch < 3:
-                    return 1
-                return 0.8 ** (epoch - 3)
-
-            scheduler = {"scheduler": lrs.LambdaLR(optimizer, lr_lambda=lr_lambda)}
         else:
             raise ValueError("invalid lr_scheduler type: {}".format(self.hparams.lr_scheduler))
 
