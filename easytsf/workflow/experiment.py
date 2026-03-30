@@ -56,7 +56,7 @@ def run_experiment(runtime_conf, extra_callbacks=None):
 
 def build_cli_parser():
     parser = argparse.ArgumentParser(description="Run a single EasyTSF experiment.")
-    parser.add_argument("--experiment", help="Experiment preset ref or yaml path.")
+    parser.add_argument("experiment", help="Experiment preset ref or yaml path.")
     parser.add_argument(
         "--set",
         dest="overrides",
