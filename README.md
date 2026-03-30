@@ -35,12 +35,6 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-Foundation model 相关依赖保持可选安装。当前首个接入模型是 `MOMENT`，需要额外安装：
-
-```shell
-pip install momentfm
-```
-
 ## 快速开始
 
 单实验训练：

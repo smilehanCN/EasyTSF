@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class ModelContract:
     model_name: str
@@ -29,30 +30,15 @@ class ModelContract:
 
 
 MODEL_CONTRACTS = {
-    "SimpleMLP": ModelContract("SimpleMLP", ("mtsf",)),
     "iTransformer": ModelContract("iTransformer", ("mtsf",)),
-    "MOMENT": ModelContract("MOMENT", ("mtsf",)),
-    "CoRA": ModelContract("CoRA", ("mtsf",)),
     "TQNet": ModelContract("TQNet", ("mtsf",)),
-    "MLP": ModelContract("MLP", ("mtsf",), maintenance_tier="legacy", note="Legacy baseline without preset/smoke coverage."),
+    "STGCN": ModelContract("STGCN", ("mtsf",), maintenance_tier="legacy", note="Legacy baseline without preset/smoke coverage."),
     "STID": ModelContract("STID", ("mtsf",), maintenance_tier="legacy", note="Legacy baseline without preset/smoke coverage."),
     "SparseTSF": ModelContract(
         "SparseTSF",
         ("mtsf",),
         maintenance_tier="legacy",
         note="Legacy baseline without preset/smoke coverage.",
-    ),
-    "TimeLLM": ModelContract(
-        "TimeLLM",
-        ("mtsf",),
-        maintenance_tier="legacy",
-        note="Legacy baseline without preset/smoke coverage.",
-    ),
-    "RLinear": ModelContract(
-        "RLinear",
-        (),
-        maintenance_tier="legacy",
-        note="Legacy implementation that no longer matches the maintained mtsf tensor contract.",
     ),
 }
 
