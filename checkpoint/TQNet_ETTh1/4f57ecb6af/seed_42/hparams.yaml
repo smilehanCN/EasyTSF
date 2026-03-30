@@ -2,7 +2,7 @@ accelerator: auto
 batch_size: 128
 channel_aggre: true
 channel_aggre_heads: 4
-conf_hash: fc6d228f9e
+conf_hash: 4f57ecb6af
 cycle: 24
 cycle_feature_name: time of day
 d_model: 512
@@ -11,7 +11,7 @@ dataset_name: ETTh1
 devices: auto
 dropout: 0.0
 es_patience: 5
-exp_dir: checkpoint/TQNet_ETTh1/fc6d228f9e/seed_42
+exp_dir: checkpoint/TQNet_ETTh1/4f57ecb6af/seed_42
 gradient_clip_algorithm: norm
 gradient_clip_val: 1.0
 hist_len: 96
@@ -31,11 +31,9 @@ save_root: checkpoint
 seed: 42
 steps_per_epoch: 66
 task_name: mtsf
+test_metric_space: rescale
 time_feature_descriptions:
 - time of day
-- day of week
-- day of month
-- day of year
 use_mix_loss: true
 use_mmap: false
 use_revin: true
