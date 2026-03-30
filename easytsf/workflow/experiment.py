@@ -8,7 +8,7 @@ from lightning.pytorch.loggers import CSVLogger
 
 from easytsf.task import get_task_registry_entry
 
-from .config import DEFAULT_TASK_NAME, finalize_runtime_conf, load_config, load_experiment_config
+from .config import DEFAULT_TASK_NAME, finalize_runtime_conf
 
 
 @dataclass
@@ -87,24 +87,33 @@ def build_experiment(conf, training=False, extra_callbacks=None):
     return ExperimentBundle(conf=runtime_conf, datamodule=datamodule, task=task, trainer=trainer)
 
 
-def resolve_ckpt_path(conf, name="best"):
+def find_ckpt_path(conf, name="best"):
     explicit_path = Path(str(name)).expanduser()
     if explicit_path.suffix == ".ckpt":
-        if explicit_path.exists():
-            return str(explicit_path.resolve())
-        raise FileNotFoundError("checkpoint not found: {}".format(explicit_path))
+        return str(explicit_path.resolve()) if explicit_path.exists() else None
 
     ckpt_dir = Path(conf["exp_dir"]) / "checkpoints"
     if name == "last":
         ckpt_path = ckpt_dir / "last.ckpt"
-        if ckpt_path.exists():
-            return str(ckpt_path.resolve())
-        raise FileNotFoundError("checkpoint not found: {}".format(ckpt_path))
+        return str(ckpt_path.resolve()) if ckpt_path.exists() else None
 
     candidates = sorted(path for path in ckpt_dir.glob("*.ckpt") if path.name != "last.ckpt")
-    if not candidates:
-        raise FileNotFoundError("best checkpoint not found under {}".format(ckpt_dir))
-    return str(candidates[0].resolve())
+    return str(candidates[0].resolve()) if candidates else None
+
+
+def resolve_ckpt_path(conf, name="best"):
+    ckpt_path = find_ckpt_path(conf, name=name)
+    if ckpt_path is not None:
+        return ckpt_path
+
+    explicit_path = Path(str(name)).expanduser()
+    if explicit_path.suffix == ".ckpt":
+        raise FileNotFoundError("checkpoint not found: {}".format(explicit_path))
+
+    ckpt_dir = Path(conf["exp_dir"]) / "checkpoints"
+    if name == "last":
+        raise FileNotFoundError("checkpoint not found: {}".format(ckpt_dir / "last.ckpt"))
+    raise FileNotFoundError("best checkpoint not found under {}".format(ckpt_dir))
 
 
 def _metric_value(value):
@@ -119,10 +128,7 @@ def _metric_value(value):
 
 def _collect_metrics(conf, trainer):
     callback_metrics = {name: _metric_value(value) for name, value in trainer.callback_metrics.items()}
-    try:
-        ckpt_path = resolve_ckpt_path(conf, "best")
-    except FileNotFoundError:
-        ckpt_path = None
+    ckpt_path = find_ckpt_path(conf, "best")
     return {
         "task_name": conf.get("task_name", DEFAULT_TASK_NAME),
         "model_name": conf["model_name"],
@@ -149,17 +155,9 @@ def run_experiment(conf, extra_callbacks=None):
     experiment = build_experiment(resolved_conf, training=True, extra_callbacks=extra_callbacks)
     Path(experiment.conf["exp_dir"]).mkdir(parents=True, exist_ok=True)
     experiment.trainer.fit(experiment.task, datamodule=experiment.datamodule)
-    try:
-        resolve_ckpt_path(experiment.conf, "best")
-        ckpt_path = "best"
-    except FileNotFoundError:
-        ckpt_path = None
+    ckpt_path = "best" if find_ckpt_path(experiment.conf, "best") else None
     experiment.trainer.test(experiment.task, datamodule=experiment.datamodule, ckpt_path=ckpt_path)
     return _collect_metrics(experiment.conf, experiment.trainer)
-
-
-def run_training(conf):
-    return run_experiment(conf)
 
 
 def run_evaluation(conf, ckpt_path="best"):
@@ -172,7 +170,3 @@ def run_evaluation(conf, ckpt_path="best"):
         ckpt_path=resolve_ckpt_path(experiment.conf, ckpt_path),
     )
     return _collect_metrics(experiment.conf, experiment.trainer)
-
-
-def experiment_main(conf, extra_callbacks=None):
-    return run_experiment(conf, extra_callbacks=extra_callbacks)

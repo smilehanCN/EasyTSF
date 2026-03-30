@@ -7,24 +7,19 @@ from pathlib import Path
 
 from .config import finalize_runtime_conf
 from .config import BENCHMARK_CONFIG_DIR, _save_json, load_experiment_config, load_module_from_path
-from .experiment import _serialize_value, resolve_ckpt_path, run_experiment
+from .experiment import _serialize_value, find_ckpt_path, run_experiment
 
 
-BENCHMARK_ALLOWED_KEYS = {"name", "seeds", "search_config", "experiment", "param_space"}
 BENCHMARK_SEARCH_CONFIG_DEFAULTS = {
     "num_samples": 1,
     "cpus_per_trial": 2,
     "gpus_per_trial": 0.5,
     "num_gpus": 0,
 }
-BENCHMARK_SEARCH_ALLOWED_KEYS = set(BENCHMARK_SEARCH_CONFIG_DEFAULTS)
 
 
 def _slug(value):
-    slug = "".join(char if char.isalnum() else "_" for char in str(value or "")).strip("_").lower()
-    if slug == "":
-        raise ValueError("cannot derive slug from empty value")
-    return slug
+    return "".join(char if char.isalnum() else "_" for char in str(value or "")).strip("_").lower()
 
 
 def _resolve_benchmark_path(benchmark_ref):
@@ -35,29 +30,18 @@ def _resolve_benchmark_path(benchmark_ref):
     relative_ref = Path(benchmark_ref)
     if relative_ref.suffix != ".py":
         relative_ref = relative_ref.with_suffix(".py")
-    resolved_path = (BENCHMARK_CONFIG_DIR / relative_ref).resolve()
-    if resolved_path.exists():
-        return resolved_path
-    raise FileNotFoundError("benchmark config not found: {}".format(benchmark_ref))
+    return (BENCHMARK_CONFIG_DIR / relative_ref).resolve()
 
 
 def _load_python_benchmark(path):
     module_hash = hashlib.md5(str(path).encode("utf-8")).hexdigest()[:10]
     module = load_module_from_path("easytsf_benchmark_{}".format(module_hash), str(path))
-    if not hasattr(module, "benchmark"):
-        raise ValueError("benchmark module must define benchmark: {}".format(path))
     return module.benchmark
 
 
-def _normalize_search_config(raw_search_config, benchmark_path):
+def _normalize_search_config(raw_search_config):
     if raw_search_config is None:
         raw_search_config = {}
-    if not isinstance(raw_search_config, dict):
-        raise ValueError("benchmark search_config must be a mapping: {}".format(benchmark_path))
-    unknown_keys = set(raw_search_config) - BENCHMARK_SEARCH_ALLOWED_KEYS
-    if unknown_keys:
-        raise ValueError("unsupported search_config keys in {}: {}".format(benchmark_path, sorted(unknown_keys)))
-
     search_config = {**BENCHMARK_SEARCH_CONFIG_DEFAULTS, **raw_search_config}
     search_config["num_samples"] = int(search_config["num_samples"])
     search_config["cpus_per_trial"] = int(search_config["cpus_per_trial"])
@@ -137,10 +121,6 @@ def load_saved_metrics(conf):
     rmse = last_logged_value("test/rmse")
     if mae is None and mse is None and rmse is None:
         return None
-    try:
-        ckpt_path = resolve_ckpt_path(conf, "best")
-    except FileNotFoundError:
-        ckpt_path = None
     return {
         "task_name": conf.get("task_name", "mtsf"),
         "model_name": conf["model_name"],
@@ -150,7 +130,7 @@ def load_saved_metrics(conf):
         "seed": int(conf["seed"]),
         "conf_hash": conf["conf_hash"],
         "exp_dir": str(Path(conf["exp_dir"]).resolve()),
-        "ckpt_path": ckpt_path,
+        "ckpt_path": find_ckpt_path(conf, "best"),
         "status": "success",
         "error": None,
         "val_metric_name": conf.get("val_metric"),
@@ -164,34 +144,11 @@ def load_saved_metrics(conf):
 def load_benchmark(benchmark_ref):
     benchmark_path = _resolve_benchmark_path(benchmark_ref)
     raw_conf = _load_python_benchmark(benchmark_path)
-    if not isinstance(raw_conf, dict):
-        raise ValueError("benchmark config must be a mapping: {}".format(benchmark_path))
-
-    unknown_keys = set(raw_conf) - BENCHMARK_ALLOWED_KEYS
-    if unknown_keys:
-        raise ValueError("unsupported benchmark keys in {}: {}".format(benchmark_path, sorted(unknown_keys)))
-
-    experiment_ref = raw_conf.get("experiment")
-    if not isinstance(experiment_ref, str) or experiment_ref.strip() == "":
-        raise ValueError("benchmark experiment must be a non-empty string: {}".format(benchmark_path))
-
-    if "param_space" not in raw_conf:
-        raise ValueError("benchmark param_space must be explicitly provided: {}".format(benchmark_path))
-    param_space = raw_conf.get("param_space")
-    if not isinstance(param_space, dict):
-        raise ValueError("benchmark param_space must be a mapping: {}".format(benchmark_path))
-
+    experiment_ref = raw_conf["experiment"]
+    param_space = raw_conf["param_space"]
     seeds = raw_conf.get("seeds", [0])
-    if not isinstance(seeds, list) or len(seeds) == 0:
-        raise ValueError("benchmark seeds must be a non-empty list: {}".format(benchmark_path))
-
     base_conf = load_experiment_config(experiment_ref)
     derived_name = _benchmark_name_from_conf(base_conf)
-    configured_name = raw_conf.get("name")
-    if configured_name is not None and configured_name != derived_name:
-        raise ValueError(
-            "benchmark name must match the derived model_dataset '{}': {}".format(derived_name, benchmark_path)
-        )
 
     return {
         "path": benchmark_path,
@@ -199,7 +156,7 @@ def load_benchmark(benchmark_ref):
         "experiment": experiment_ref,
         "base_conf": dict(base_conf),
         "seeds": [int(seed) for seed in seeds],
-        "search_config": _normalize_search_config(raw_conf.get("search_config"), benchmark_path),
+        "search_config": _normalize_search_config(raw_conf.get("search_config")),
         "param_space": dict(param_space),
     }
 
@@ -640,30 +597,7 @@ def run_benchmark(
 
         print("[run] {} seed={} -> {}".format(benchmark_conf["name"], conf["seed"], conf["exp_dir"]))
         try:
-            result = run_experiment(conf)
-            metrics = result if isinstance(result, dict) else load_saved_metrics(conf)
-            if metrics is None:
-                try:
-                    ckpt_path = resolve_ckpt_path(conf, "best")
-                except FileNotFoundError:
-                    ckpt_path = None
-                metrics = {
-                    "task_name": conf.get("task_name", "mtsf"),
-                    "model_name": conf["model_name"],
-                    "dataset_name": conf["dataset_name"],
-                    "hist_len": int(conf["hist_len"]),
-                    "pred_len": int(conf["pred_len"]),
-                    "seed": int(conf["seed"]),
-                    "conf_hash": conf["conf_hash"],
-                    "exp_dir": str(Path(conf["exp_dir"]).resolve()),
-                    "ckpt_path": ckpt_path,
-                    "status": "success",
-                    "error": None,
-                    "val_metric_name": conf.get("val_metric"),
-                    "val_metric_value": None,
-                    "mae": None,
-                    "mse": None,
-                }
+            metrics = run_experiment(conf)
         except Exception as error:
             metrics = _build_failure_record(conf, error)
             print("[failed] {} seed={} error={}".format(benchmark_conf["name"], conf["seed"], error))

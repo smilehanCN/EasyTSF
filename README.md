@@ -29,10 +29,10 @@ conda activate easytsf
 pip install -r requirements.txt
 ```
 
-如果需要标准包安装和测试入口，额外执行：
+如果需要标准包安装入口，额外执行：
 
 ```shell
-pip install -e .[dev]
+pip install -e .
 ```
 
 Foundation model 相关依赖保持可选安装。当前首个接入模型是 `MOMENT`，需要额外安装：
@@ -161,8 +161,7 @@ experiment preset 是唯一的静态研究配方；`data_root`、`save_root`、`
 推荐最小验证：
 
 ```shell
-python -m unittest tests.test_config_contracts tests.test_smoke_mlp_support
-python -m compileall easytsf tests/test_config_contracts.py tests/test_smoke_mlp_support.py
+python -m compileall easytsf
 ```
 
 如果本地有数据，再补一个最小 `mtsf` smoke experiment 即可。

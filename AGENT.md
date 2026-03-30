@@ -61,8 +61,8 @@ Every experiment preset must be self-contained and explicitly set `runtime.task_
 
 - When adding a maintained model, change only the model file and matching experiment presets when possible.
 - If a code path exists only for historical compatibility and the current `mtsf` path does not use it, delete it.
-- For this research codebase, prefer letting Python/NumPy/PyTorch raise natural errors instead of adding layers of defensive pre-validation.
-- Keep explicit checks only when they prevent silent semantic misuse, such as config meaning not matching dataset meaning.
+- For this research codebase, do not add explicit checks or defensive pre-validation for cases that Python/NumPy/PyTorch will naturally reject at runtime.
+- Keep explicit checks limited to format or structure consistency issues that Python cannot naturally surface, especially when they prevent silent semantic misuse such as config meaning not matching dataset meaning.
 - Documentation must describe the current repository state, not removed features.
 
 ## Validation Guidelines
@@ -70,5 +70,6 @@ Every experiment preset must be self-contained and explicitly set `runtime.task_
 Prefer lightweight validation:
 
 1. `conda activate easytsf`
-2. `python -m compileall easytsf tests/test_smoke_mlp_support.py tests/test_config_contracts.py`
-4. If local data exists, run the smallest `mtsf` smoke experiment
+2. `python -m compileall easytsf`
+
+Do not run `pytest`.

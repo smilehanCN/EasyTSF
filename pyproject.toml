@@ -18,12 +18,5 @@ dependencies = [
     "PyYAML>=6.0.0",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest>=8.0.0"]
-
 [tool.setuptools.packages.find]
 include = ["easytsf*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-q"
