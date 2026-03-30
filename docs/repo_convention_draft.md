@@ -28,7 +28,7 @@
 1. 接入模型
 2. 跑通单实验
 3. 固化为 experiment preset
-4. 进入 benchmark 做多 seed / 多数据集汇总
+4. 进入 benchmark 做超参数搜索与 trial 汇总
 
 ## 2. 目录与职责
 

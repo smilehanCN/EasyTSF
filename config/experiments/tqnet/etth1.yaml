@@ -1,7 +1,7 @@
 # model
 model_name: TQNet
 cycle: 24
-cycle_feature_name: 'time of day'
+cycle_feature_name: "time of day"
 d_model: 512
 dropout: 0.0
 use_revin: true
@@ -19,6 +19,7 @@ time_feature_descriptions:
   - time of day
 
 # train
+seed: 42
 batch_size: 128
 max_epochs: 30
 lr: 0.0001
@@ -38,3 +39,5 @@ pin_memory: null
 persistent_workers: null
 prefetch_factor: 2
 use_mmap: false
+data_root: dataset
+save_root: checkpoint

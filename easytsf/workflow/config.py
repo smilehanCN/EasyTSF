@@ -68,12 +68,6 @@ def parse_devices(devices):
     return value
 
 
-def _save_json(path, data):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(data, handle, indent=2, sort_keys=True, ensure_ascii=False)
-
 def parse_config_overrides(override_items):
     overrides = {}
     for item in override_items or []:

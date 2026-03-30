@@ -30,17 +30,14 @@ class FakeTrainer:
     def __init__(self, **kwargs):
         self.kwargs = dict(kwargs)
         self.events = []
+        self.callback_metrics = {"val/loss": 0.25}
         FakeTrainer.instances.append(self)
 
     def fit(self, task, datamodule=None):
         self.events.append(("fit", task, datamodule))
 
-    def test(self, task, datamodule=None, ckpt_path=None):
-        self.events.append(("test", task, datamodule, ckpt_path))
-        return [{"test/mae": 1.0, "test/mse": 2.0}]
 
-
-def test_run_experiment_uses_single_fit_then_best_test_flow(tmp_path, monkeypatch):
+def test_run_experiment_returns_val_metric_after_fit(tmp_path, monkeypatch):
     seed_calls = []
     FakeTrainer.instances.clear()
 
@@ -75,15 +72,14 @@ def test_run_experiment_uses_single_fit_then_best_test_flow(tmp_path, monkeypatc
     )
 
     trainer = FakeTrainer.instances[-1]
-    assert result == [{"test/mae": 1.0, "test/mse": 2.0}]
+    assert result == {"val/loss": 0.25}
     assert seed_calls == [7]
     assert FakeDataModule.init_kwargs["exp_dir"] == str(exp_dir)
     assert FakeTask.init_kwargs["steps_per_epoch"] == 4
     assert trainer.kwargs["logger"].log_dir.rstrip("/") == str(exp_dir.resolve())
     assert trainer.kwargs["default_root_dir"] == str(exp_dir.resolve())
     assert "extra-callback" in trainer.kwargs["callbacks"]
-    assert [event[0] for event in trainer.events] == ["fit", "test"]
-    assert trainer.events[1][3] == "best"
+    assert [event[0] for event in trainer.events] == ["fit"]
 
 
 def test_cli_parser_rejects_removed_eval_flags():

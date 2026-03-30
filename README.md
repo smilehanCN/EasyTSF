@@ -42,7 +42,7 @@ pip install -e .
 ```python
 from easytsf.workflow import finalize_runtime_conf, load_experiment_config, run_experiment
 
-base_conf = load_experiment_config("tqnet/etth1")
+base_conf = load_experiment_config("config/experiments/tqnet/etth1.yaml")
 conf = finalize_runtime_conf(
     base_conf,
     overrides={
@@ -57,7 +57,7 @@ run_experiment(conf)
 命令行单实验训练：
 
 ```shell
-python -m easytsf.workflow.experiment tqnet/electricity \
+python -m easytsf.workflow.experiment config/experiments/tqnet/electricity.yaml \
   --set data_root=dataset \
   --set save_root=save \
   --set seed=0
@@ -68,25 +68,17 @@ python -m easytsf.workflow.experiment tqnet/electricity \
 ```python
 from easytsf.workflow import run_benchmark
 
-result = run_benchmark(
-    "tqnet/core",
-    runtime_overrides={
-        "data_root": "dataset",
-        "save_root": "save",
-        "seed": 0,
-    },
-    dry_run=False,
+best_val_metric = run_benchmark(
+    "config/benchmarks/tqnet/core.py",
     resume=True,
 )
-print(result["benchmark_dir"])
+print(best_val_metric)
 ```
 
 命令行批量评测：
 
 ```shell
-python -m easytsf.workflow.benchmark tqnet/core \
-  --set data_root=dataset \
-  --set save_root=save
+python -m easytsf.workflow.benchmark config/benchmarks/tqnet/core.py
 ```
 
 ## 数据格式
@@ -152,13 +144,14 @@ experiment preset 文件本身使用 flat YAML，并通过 `# model`、`# data`�
 
 ### `benchmark`
 
-`benchmark` 是一组 `experiment` 的批量执行与结果汇总声明。它只负责编排：
+`benchmark` 是单个 `experiment` 的 Tune 搜索声明。它只负责编排：
 
 - 用哪个 experiment
-- 跑哪些 seed
 - 用什么搜索空间
 - 如何 resume
-- 如何汇总结果
+- 返回最优 trial 结果
+
+`benchmark` 本身不再声明多 seed 复评；单次搜索使用的 `seed` 等运行参数直接来自 experiment preset，搜索结果目录由 `benchmark_config["search_name"]` 指定。
 
 ## 测试
 

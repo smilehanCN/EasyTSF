@@ -1,16 +1,16 @@
 from ray import tune
 
 
-benchmark = {
+benchmark_config = {
     "name": "tqnet_electricity",
-    "seeds": [0, 1, 2],
+    "search_name": "save/benchmarks/tqnet_electricity/search",
     "search_config": {
         "num_samples": 20,
         "cpus_per_trial": 2,
         "gpus_per_trial": 0.5,
         "num_gpus": 4,
     },
-    "experiment": "tqnet/electricity",
+    "experiment": "config/experiments/tqnet/electricity.yaml",
     "param_space": {
         "hist_len": 96,
         "pred_len": tune.grid_search([12, 24]),
