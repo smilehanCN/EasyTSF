@@ -106,6 +106,8 @@ class MTSFTask(L.LightningModule):
         metric_space = getattr(self.hparams, "test_metric_space", "original")
         if metric_space == "original":
             prediction, label = self.postprocess_outputs(prediction, label)
+        prediction = prediction.contiguous()
+        label = label.contiguous()
         self.test_mae.update(prediction, label)
         self.test_mse.update(prediction, label)
         self.test_rmse.update(prediction, label)
