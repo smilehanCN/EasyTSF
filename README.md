@@ -151,7 +151,7 @@ experiment preset 文件本身使用 flat YAML，并通过 `# model`、`# data`�
 - 如何 resume
 - 返回最优 trial 结果
 
-`benchmark` 本身不再声明多 seed 复评；单次搜索使用的 `seed` 等运行参数直接来自 experiment preset，搜索结果目录由 `benchmark_config["search_name"]` 指定。
+`benchmark` 本身不再声明多 seed 复评；单次搜索使用的 `seed` 等运行参数直接来自 experiment preset，搜索结果目录由 `benchmark_config["search_save_dir"]` 指定。
 
 ## 测试
 

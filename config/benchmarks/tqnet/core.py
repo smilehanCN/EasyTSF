@@ -3,7 +3,7 @@ from ray import tune
 
 benchmark_config = {
     "name": "tqnet_electricity",
-    "search_name": "save/benchmarks/tqnet_electricity/search",
+    "search_save_dir": "save/benchmarks/tqnet_electricity/search",
     "search_config": {
         "num_samples": 20,
         "cpus_per_trial": 2,

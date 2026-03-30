@@ -149,7 +149,7 @@ def test_load_benchmark_uses_explicit_path_and_config_name(tmp_path):
     benchmark_path.write_text(
         "benchmark_config = {\n"
         "    'name': 'custom_benchmark',\n"
-        "    'search_name': " + repr(str(search_path)) + ",\n"
+        "    'search_save_dir': " + repr(str(search_path)) + ",\n"
         "    'experiment': " + repr(str(experiment_path)) + ",\n"
         "    'search_config': {\n"
         "        'num_samples': 1,\n"
@@ -165,7 +165,7 @@ def test_load_benchmark_uses_explicit_path_and_config_name(tmp_path):
     loaded = benchmark.load_benchmark(str(benchmark_path))
 
     assert loaded["name"] == "custom_benchmark"
-    assert loaded["search_dir"] == str(search_path.resolve())
+    assert loaded["search_save_dir"] == str(search_path.resolve())
     assert loaded["base_conf"]["model_name"] == "demo_model"
     assert loaded["param_space"] == {}
 
@@ -192,7 +192,7 @@ def test_run_benchmark_reports_val_metric_via_lightning_callback(tmp_path, monke
             "gpus_per_trial": 0.5,
             "num_gpus": 0,
         },
-        "search_dir": str(tmp_path / "search"),
+        "search_save_dir": str(tmp_path / "search"),
         "param_space": {"lr": 0.01},
     }
 
@@ -244,7 +244,7 @@ def test_run_benchmark_uses_tuner_restore_for_resume(tmp_path, monkeypatch, caps
             "gpus_per_trial": 0.5,
             "num_gpus": 0,
         },
-        "search_dir": str(tmp_path / "search"),
+        "search_save_dir": str(tmp_path / "search"),
         "param_space": {"lr": 0.02},
     }
 
@@ -290,7 +290,7 @@ def test_run_benchmark_returns_min_val_metric(tmp_path, monkeypatch):
             "gpus_per_trial": 0.5,
             "num_gpus": 0,
         },
-        "search_dir": str(tmp_path / "custom_search"),
+        "search_save_dir": str(tmp_path / "custom_search"),
         "param_space": {},
     }
     run_calls = []
@@ -333,7 +333,7 @@ def test_run_benchmark_resume_uses_tuner_restore(tmp_path, monkeypatch):
             "gpus_per_trial": 0.5,
             "num_gpus": 0,
         },
-        "search_dir": str(tmp_path / "custom_search"),
+        "search_save_dir": str(tmp_path / "custom_search"),
         "param_space": {},
     }
 

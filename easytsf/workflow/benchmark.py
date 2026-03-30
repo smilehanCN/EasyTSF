@@ -10,7 +10,7 @@ def load_benchmark(benchmark_ref):
     benchmark_path = Path(benchmark_ref).expanduser().resolve()
     raw_conf = load_module_from_path(benchmark_path.stem, str(benchmark_path)).benchmark_config
     experiment_path = Path(raw_conf["experiment"]).expanduser().resolve()
-    search_dir = Path(raw_conf["search_name"]).expanduser().resolve()
+    search_save_dir = Path(raw_conf["search_save_dir"]).expanduser().resolve()
     search_config = dict(raw_conf["search_config"])
     search_config["num_samples"] = int(search_config["num_samples"])
     search_config["cpus_per_trial"] = int(search_config["cpus_per_trial"])
@@ -20,7 +20,7 @@ def load_benchmark(benchmark_ref):
         "name": str(raw_conf.get("name")),
         "base_conf": load_experiment_config(experiment_path),
         "search_config": search_config,
-        "search_dir": str(search_dir),
+        "search_save_dir": str(search_save_dir),
         "param_space": dict(raw_conf["param_space"]),
     }
 
@@ -61,7 +61,7 @@ def run_benchmark(
 ):
     benchmark_conf = load_benchmark(benchmark_ref)
     base_conf = dict(benchmark_conf["base_conf"])
-    search_dir = Path(benchmark_conf["search_dir"]).expanduser().resolve()
+    search_save_dir = Path(benchmark_conf["search_save_dir"]).expanduser().resolve()
     search_config = benchmark_conf["search_config"]
     param_space = benchmark_conf["param_space"]
     os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"
@@ -84,7 +84,7 @@ def run_benchmark(
         resources={"cpu": search_config["cpus_per_trial"], "gpu": search_config["gpus_per_trial"]},
     )
 
-    ray_storage_path = search_dir / "ray_results"
+    ray_storage_path = search_save_dir / "ray_results"
     ray_experiment_path = ray_storage_path / "ray"
     should_restore = resume and tune.Tuner.can_restore(str(ray_experiment_path))
     if should_restore:
