@@ -132,23 +132,22 @@ class MTSDataModule(pl.LightningDataModule):
             variable = load_npy_array(data_path, use_mmap=self.use_mmap, dtype=np.float32)
             self.split_variable[split_name] = variable
 
-        timestamp_descriptions = self.meta["timestamps_description"]
-
+        timestamp_descriptions = tuple(self.meta["timestamps_description"] or ())
+        selected_time_feature_indices = None
         configured_time_feature_descriptions = self.config.get("time_feature_descriptions")
         if configured_time_feature_descriptions is not None:
-            if tuple(timestamp_descriptions) != tuple(configured_time_feature_descriptions):
-                raise ValueError(
-                    "dataset meta timestamps_description {} does not match config time_feature_descriptions {}".format(
-                        list(timestamp_descriptions),
-                        list(configured_time_feature_descriptions),
-                    )
-                )
+            selected_time_feature_indices = [
+                timestamp_descriptions.index(description)
+                for description in configured_time_feature_descriptions
+            ]
         freq = int(self.meta["frequency (minutes)"])
 
         for split_name in ("train", "val", "test"):
             timestamp_path = self.dataset_dir / "{}_timestamps.npy".format(split_name)
             raw_timestamps = load_npy_array(timestamp_path, use_mmap=self.use_mmap, dtype=np.float32)
             time_feature = restore_basic_ts_timestamps(raw_timestamps, timestamp_descriptions, freq)
+            if selected_time_feature_indices is not None:
+                time_feature = time_feature[..., selected_time_feature_indices]
             self.split_time_feature[split_name] = time_feature
 
     def _build_split_dataset(self, split_name):
