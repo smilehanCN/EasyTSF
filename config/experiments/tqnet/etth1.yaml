@@ -14,7 +14,6 @@ dataset_name: ETTh1
 hist_len: 96
 pred_len: 96
 var_num: 7
-precompute_window_index: false
 time_feature_descriptions:
   - time of day
 
@@ -31,7 +30,7 @@ gradient_clip_val: 1.0
 gradient_clip_algorithm: norm
 val_metric: val/loss
 use_mix_loss: true
-test_metric_space: rescale
+test_metric_space: scaled
 
 # runtime
 task_name: mtsf
@@ -42,3 +41,4 @@ prefetch_factor: 2
 use_mmap: false
 data_root: dataset
 save_root: checkpoint
+devices: 0

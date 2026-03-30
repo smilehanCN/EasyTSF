@@ -36,6 +36,10 @@ class FakeTrainer:
     def fit(self, task, datamodule=None):
         self.events.append(("fit", task, datamodule))
 
+    def test(self, task, datamodule=None, ckpt_path=None):
+        self.events.append(("test", task, datamodule, ckpt_path))
+        return {"val/loss": self.callback_metrics["val/loss"]}
+
 
 def test_run_experiment_returns_val_metric_after_fit(tmp_path, monkeypatch):
     seed_calls = []
@@ -79,7 +83,7 @@ def test_run_experiment_returns_val_metric_after_fit(tmp_path, monkeypatch):
     assert trainer.kwargs["logger"].log_dir.rstrip("/") == str(exp_dir.resolve())
     assert trainer.kwargs["default_root_dir"] == str(exp_dir.resolve())
     assert "extra-callback" in trainer.kwargs["callbacks"]
-    assert [event[0] for event in trainer.events] == ["fit"]
+    assert [event[0] for event in trainer.events] == ["fit", "test"]
 
 
 def test_cli_parser_rejects_removed_eval_flags():

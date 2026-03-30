@@ -55,7 +55,7 @@ def restore_basic_ts_timestamps(raw_timestamps, descriptions, freq):
 
 
 class BasicTSSequenceDataset(Dataset):
-    def __init__(self, hist_len, pred_len, variable, timestamps, precompute_window_index=False):
+    def __init__(self, hist_len, pred_len, variable, timestamps):
         self.hist_len = hist_len
         self.pred_len = pred_len
         self.variable = variable
@@ -63,12 +63,9 @@ class BasicTSSequenceDataset(Dataset):
         self.total_windows = len(self.variable) - (self.hist_len + self.pred_len) + 1
         if self.total_windows <= 0:
             raise ValueError("invalid dataset split for sliding window")
-        self.window_start_index = None
-        if precompute_window_index:
-            self.window_start_index = np.arange(self.total_windows, dtype=np.int32)
 
     def __getitem__(self, index):
-        hist_start = int(self.window_start_index[index]) if self.window_start_index is not None else index
+        hist_start = index
         hist_end = hist_start + self.hist_len
         pred_end = hist_end + self.pred_len
 
@@ -102,7 +99,6 @@ class MTSDataModule(pl.LightningDataModule):
             self.persistent_workers = self.num_workers > 0
         self.prefetch_factor = kwargs.get("prefetch_factor", 2)
         self.use_mmap = bool(kwargs.get("use_mmap", False))
-        self.precompute_window_index = bool(kwargs.get("precompute_window_index", False))
 
         dataset_root = Path(kwargs["data_root"]).expanduser()
         self.dataset_dir = dataset_root / self.dataset_name
@@ -156,7 +152,6 @@ class MTSDataModule(pl.LightningDataModule):
             pred_len=self.pred_len,
             variable=self.split_variable[split_name],
             timestamps=self.split_time_feature[split_name],
-            precompute_window_index=self.precompute_window_index,
         )
 
     def train_dataloader(self):
