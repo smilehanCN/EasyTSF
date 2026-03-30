@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 import easytsf.workflow.config as workflow_config
 
 
@@ -52,6 +54,14 @@ def test_finalize_runtime_conf_ignores_none_override_values():
     )
 
     assert conf["task_name"] == "mtsf"
+
+
+def test_parse_devices_rejects_zero_device_count():
+    with pytest.raises(ValueError, match="devices=0 is invalid"):
+        workflow_config.parse_devices(0)
+
+    with pytest.raises(ValueError, match="devices=0 is invalid"):
+        workflow_config.parse_devices("0")
 
 
 def test_load_experiment_config_no_longer_applies_overrides(tmp_path):

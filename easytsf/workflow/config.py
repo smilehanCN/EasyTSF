@@ -45,6 +45,8 @@ def parse_devices(devices):
     if devices is None:
         return "auto"
     if isinstance(devices, int):
+        if devices == 0:
+            raise ValueError("devices=0 is invalid; use devices=1/auto, or devices=[0] to select GPU 0 explicitly")
         return devices
     if isinstance(devices, (list, tuple)):
         return [int(device_id) for device_id in devices]
@@ -64,7 +66,10 @@ def parse_devices(devices):
             return "auto"
         return [int(part) for part in parts]
     if value.lstrip("-").isdigit():
-        return int(value)
+        parsed = int(value)
+        if parsed == 0:
+            raise ValueError("devices=0 is invalid; use devices=1/auto, or devices=[0] to select GPU 0 explicitly")
+        return parsed
     return value
 
 

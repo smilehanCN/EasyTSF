@@ -42,4 +42,4 @@ prefetch_factor: 2
 use_mmap: false
 data_root: dataset
 save_root: checkpoint
-devices: 0
+devices: [0]
