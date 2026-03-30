@@ -210,6 +210,7 @@ def test_run_benchmark_reports_val_metric_via_lightning_callback(tmp_path, monke
 
     assert os.environ["RAY_CHDIR_TO_TRIAL_DIR"] == "0"
     assert Path(run_calls[0][0]).name == "trial_00000"
+    assert Path(run_calls[0][0]).parent.name == "search"
     assert len(run_calls[0][1]) == 1
     assert isinstance(run_calls[0][1][0], fake_lightning_integration.TuneReportCheckpointCallback)
     assert run_calls[0][1][0].metrics == {"val/loss": "val/loss"}
@@ -261,7 +262,7 @@ def test_run_benchmark_uses_tuner_restore_for_resume(tmp_path, monkeypatch, caps
 
     assert fake_tune.Tuner.restore_calls
     restore_path, restore_param_space, restore_kwargs = fake_tune.Tuner.restore_calls[0]
-    assert restore_path.endswith("ray_results/ray")
+    assert restore_path.endswith("search")
     assert restore_param_space == {"lr": 0.02}
     assert restore_kwargs["resume_unfinished"] is True
     assert restore_kwargs["resume_errored"] is True

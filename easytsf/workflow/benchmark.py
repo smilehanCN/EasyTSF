@@ -55,13 +55,12 @@ def _tune_train_func(hyper_conf, base_conf):
     )
 
 
-def run_benchmark(
-    benchmark_ref,
-    resume=True,
-):
+def run_benchmark(benchmark_ref, resume=True):
     benchmark_conf = load_benchmark(benchmark_ref)
     base_conf = dict(benchmark_conf["base_conf"])
     search_save_dir = Path(benchmark_conf["search_save_dir"]).expanduser().resolve()
+    search_storage_path = search_save_dir.parent
+    search_experiment_name = search_save_dir.name
     search_config = benchmark_conf["search_config"]
     param_space = benchmark_conf["param_space"]
     os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"
@@ -84,12 +83,10 @@ def run_benchmark(
         resources={"cpu": search_config["cpus_per_trial"], "gpu": search_config["gpus_per_trial"]},
     )
 
-    ray_storage_path = search_save_dir / "ray_results"
-    ray_experiment_path = ray_storage_path / "ray"
-    should_restore = resume and tune.Tuner.can_restore(str(ray_experiment_path))
+    should_restore = resume and tune.Tuner.can_restore(str(search_save_dir))
     if should_restore:
         tuner = tune.Tuner.restore(
-            str(ray_experiment_path),
+            str(search_save_dir),
             trainable=trainable,
             resume_unfinished=True,
             resume_errored=True,
@@ -106,17 +103,14 @@ def run_benchmark(
                 num_samples=search_config["num_samples"],
             ),
             run_config=tune.RunConfig(
-                name="ray",
-                storage_path=str(ray_storage_path),
+                name=search_experiment_name,
+                storage_path=str(search_storage_path),
                 progress_reporter=reporter,
             ),
         )
 
     result_grid = tuner.fit()
-    best_result = result_grid.get_best_result(metric=metric, mode="min", scope="all")
-    best_metric = best_result.metrics[metric]
-    print("[best] {}={}".format(metric, best_metric))
-    return best_metric
+    return result_grid
 
 
 def build_cli_parser():
