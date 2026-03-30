@@ -61,18 +61,18 @@
 
 ## 4. 配置规范
 
-YAML 只允许四个顶层 section：
+experiment preset 使用 flat YAML，并通过注释块区分：
 
-- `model`
-- `data`
-- `train`
-- `runtime`
+- `# model`
+- `# data`
+- `# train`
+- `# runtime`
 
 配置合并顺序固定为：
 
 `experiment preset < runtime overrides`
 
-experiment preset 必须自包含完整 recipe，并显式声明 `runtime.task_name: mtsf`。如果要支持新的任务，必须先明确仓库目标变化，再讨论新增公开 task。
+experiment preset 必须自包含完整 recipe，并显式声明 `task_name: mtsf`。如果要支持新的任务，必须先明确仓库目标变化，再讨论新增公开 task。
 
 ## 5. 数据规范
 

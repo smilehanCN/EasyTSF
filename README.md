@@ -145,6 +145,7 @@ forward(var_x, marker_x, marker_y)
 `experiment preset < runtime overrides`
 
 experiment preset 是唯一的静态研究配方；`data_root`、`save_root`、`seed`、`devices`、`accelerator` 这类机器或运行环境参数继续通过运行时 override 注入。
+experiment preset 文件本身使用 flat YAML，并通过 `# model`、`# data`、`# train`、`# runtime` 注释分区。
 
 ### `benchmark`
 

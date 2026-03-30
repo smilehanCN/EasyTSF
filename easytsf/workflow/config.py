@@ -9,7 +9,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CONFIG_ROOT = PROJECT_ROOT / "config"
 EXPERIMENT_CONFIG_DIR = CONFIG_ROOT / "experiments"
 BENCHMARK_CONFIG_DIR = CONFIG_ROOT / "benchmarks"
-CONFIG_SECTIONS = ("model", "data", "train", "runtime")
 DEFAULT_TASK_NAME = "mtsf"
 
 
@@ -86,29 +85,13 @@ def _save_json(path, data):
     with path.open("w", encoding="utf-8") as handle:
         json.dump(data, handle, indent=2, sort_keys=True, ensure_ascii=False)
 
-
-def _empty_section_map():
-    return {section: {} for section in CONFIG_SECTIONS}
-
-
-def _normalize_section_map(data):
-    normalized = {}
-    for section in CONFIG_SECTIONS:
-        value = data.get(section, {})
-        if value is None:
-            value = {}
-        normalized[section] = dict(value)
-    return normalized
-
-
 def parse_config_overrides(override_items):
     import yaml
 
-    overrides = _empty_section_map()
+    overrides = {}
     for item in override_items or []:
-        key_ref, raw_value = item.split("=", 1)
-        section, key = key_ref.split(".", 1)
-        overrides[section][key] = yaml.safe_load(raw_value)
+        key, raw_value = item.split("=", 1)
+        overrides[key] = yaml.safe_load(raw_value)
     return overrides
 
 
@@ -122,29 +105,13 @@ def _resolve_experiment_path(config_ref):
         relative_ref = relative_ref.with_suffix(".yaml")
     return (EXPERIMENT_CONFIG_DIR / relative_ref).resolve()
 
-
-def _merge_sectioned_config(*configs):
-    merged = _empty_section_map()
-    for config in configs:
-        for section in CONFIG_SECTIONS:
-            merged[section].update(config.get(section, {}))
-    return merged
-
-
-def _flatten_config(sectioned_config):
-    flat_config = {}
-    for section in CONFIG_SECTIONS:
-        flat_config.update(sectioned_config[section])
-    flat_config["task_name"] = flat_config.get("task_name", DEFAULT_TASK_NAME)
-    return flat_config
-
-
 def load_experiment_config(config_ref, overrides=None):
     experiment_path = _resolve_experiment_path(config_ref)
-    experiment_config = _normalize_section_map(_load_yaml(experiment_path))
-    normalized_overrides = _normalize_section_map(overrides or {})
-    merged_config = _merge_sectioned_config(experiment_config, normalized_overrides)
-    return _flatten_config(merged_config)
+    conf = dict(_load_yaml(experiment_path))
+    if overrides:
+        conf.update(dict(overrides))
+    conf["task_name"] = conf.get("task_name", DEFAULT_TASK_NAME)
+    return conf
 
 
 def finalize_runtime_conf(base_conf, overrides=None):
