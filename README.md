@@ -54,12 +54,13 @@ conf = finalize_runtime_conf(
 run_experiment(conf)
 ```
 
-评估 best checkpoint：
+命令行单实验训练：
 
-```python
-from easytsf.workflow import run_evaluation
-
-run_evaluation(conf, ckpt_path="best")
+```shell
+python -m easytsf.workflow.experiment tqnet/electricity \
+  --set data_root=dataset \
+  --set save_root=save \
+  --set seed=0
 ```
 
 批量评测：
@@ -78,6 +79,14 @@ result = run_benchmark(
     resume=True,
 )
 print(result["benchmark_dir"])
+```
+
+命令行批量评测：
+
+```shell
+python -m easytsf.workflow.benchmark tqnet/core \
+  --set data_root=dataset \
+  --set save_root=save
 ```
 
 ## 数据格式

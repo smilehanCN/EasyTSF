@@ -4,12 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-CONFIG_ROOT = PROJECT_ROOT / "config"
-EXPERIMENT_CONFIG_DIR = CONFIG_ROOT / "experiments"
-BENCHMARK_CONFIG_DIR = CONFIG_ROOT / "benchmarks"
-DEFAULT_TASK_NAME = "mtsf"
+import yaml
 
 
 def _normalize_hash_value(value):
@@ -73,12 +68,6 @@ def parse_devices(devices):
     return value
 
 
-def _load_yaml(path):
-    import yaml
-
-    with Path(path).open("r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
-
 def _save_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,8 +75,6 @@ def _save_json(path, data):
         json.dump(data, handle, indent=2, sort_keys=True, ensure_ascii=False)
 
 def parse_config_overrides(override_items):
-    import yaml
-
     overrides = {}
     for item in override_items or []:
         key, raw_value = item.split("=", 1)
@@ -95,23 +82,9 @@ def parse_config_overrides(override_items):
     return overrides
 
 
-def _resolve_experiment_path(config_ref):
-    ref_path = Path(config_ref).expanduser()
-    if ref_path.exists():
-        return ref_path.resolve()
-
-    relative_ref = Path(config_ref)
-    if relative_ref.suffix not in {".yaml", ".yml"}:
-        relative_ref = relative_ref.with_suffix(".yaml")
-    return (EXPERIMENT_CONFIG_DIR / relative_ref).resolve()
-
-def load_experiment_config(config_ref, overrides=None):
-    experiment_path = _resolve_experiment_path(config_ref)
-    conf = dict(_load_yaml(experiment_path))
-    if overrides:
-        conf.update(dict(overrides))
-    conf["task_name"] = conf.get("task_name", DEFAULT_TASK_NAME)
-    return conf
+def load_experiment_config(config_ref):
+    with Path(config_ref).open("r", encoding="utf-8") as handle:
+        return dict(yaml.safe_load(handle) or {})
 
 
 def finalize_runtime_conf(base_conf, overrides=None):
@@ -119,6 +92,7 @@ def finalize_runtime_conf(base_conf, overrides=None):
     if overrides:
         conf.update({key: value for key, value in overrides.items() if value is not None})
 
+    conf["task_name"] = conf.get("task_name", "mtsf")
     conf["devices"] = parse_devices(conf.get("devices", "auto"))
     conf["accelerator"] = conf.get("accelerator", "auto")
     conf["conf_hash"] = cal_conf_hash(conf, hash_len=10)
