@@ -1,3 +1,4 @@
+import argparse
 import csv
 import hashlib
 import math
@@ -10,12 +11,6 @@ from .config import load_module_from_path
 
 
 FIXED_COLUMNS = ["model", "dataset", "hist_len", "pred_len"]
-FIXED_COLUMN_MAP = {
-    "model": "model",
-    "dataset": "dataset",
-    "hist_len": "hist_len",
-    "pred_len": "pred_len",
-}
 
 
 def _load_benchmark_config(benchmark_ref):
@@ -108,10 +103,10 @@ def _build_run_record(run_dir, parameter_columns):
     metrics, test_columns, val_columns = _read_metrics(run_dir)
 
     record = {}
-    for target_key, source_key in FIXED_COLUMN_MAP.items():
-        if source_key not in hparams:
-            raise ValueError("Missing hparam '{}' in '{}'".format(source_key, run_dir))
-        record[target_key] = hparams[source_key]
+    for column in FIXED_COLUMNS:
+        if column not in hparams:
+            raise ValueError("Missing hparam '{}' in '{}'".format(column, run_dir))
+        record[column] = hparams[column]
 
     if "seed" not in hparams:
         raise ValueError("Missing hparam 'seed' in '{}'".format(run_dir))
@@ -201,6 +196,30 @@ def build_benchmark_report(benchmark_ref, results_dir=None, out_path=None):
         report_df.to_csv(output_path, index=False)
 
     return report_df
+
+
+def build_cli_parser():
+    parser = argparse.ArgumentParser(description="Build an EasyTSF benchmark report.")
+    parser.add_argument("benchmark", help="Benchmark python file path.")
+    parser.add_argument(
+        "--results-dir",
+        default=None,
+        help="Override benchmark search_save_dir.",
+    )
+    parser.add_argument(
+        "--out",
+        dest="out_path",
+        default=None,
+        help="Output csv file path. Print csv to stdout when omitted.",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    args = build_cli_parser().parse_args()
+    report_df = build_benchmark_report(args.benchmark, results_dir=args.results_dir, out_path=args.out_path)
+    if args.out_path is None:
+        print(report_df.to_csv(index=False), end="")
 
 
 __all__ = ["build_benchmark_report"]
