@@ -21,7 +21,6 @@ class MTSFTask(L.LightningModule):
         self.loss_function = nn.MSELoss()
         self.test_mae = MeanAbsoluteError()
         self.test_mse = MeanSquaredError()
-        self.test_rmse = MeanSquaredError(squared=False)
 
     def _build_model(self):
         model_name = self.hparams.model
@@ -102,10 +101,8 @@ class MTSFTask(L.LightningModule):
         label = label.contiguous()
         self.test_mae.update(prediction, label)
         self.test_mse.update(prediction, label)
-        self.test_rmse.update(prediction, label)
         self.log("test/mae", self.test_mae, on_step=False, on_epoch=True, sync_dist=True)
         self.log("test/mse", self.test_mse, on_step=False, on_epoch=True, sync_dist=True)
-        self.log("test/rmse", self.test_rmse, on_step=False, on_epoch=True, sync_dist=True)
 
     def configure_optimizers(self):
         if hasattr(self.model, "get_param_groups"):
