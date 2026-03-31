@@ -39,6 +39,7 @@ def _install_fake_ray(monkeypatch):
         def __init__(self, **kwargs):
             self.name = kwargs["name"]
             self.storage_path = kwargs["storage_path"]
+            self.verbose = kwargs.get("verbose")
             self.progress_reporter = kwargs.get("progress_reporter")
 
     class FakeTuner:
@@ -143,7 +144,7 @@ def _install_fake_ray(monkeypatch):
 
 def test_load_benchmark_uses_explicit_path_and_config_name(tmp_path):
     experiment_path = tmp_path / "experiment.yaml"
-    experiment_path.write_text("model_name: demo_model\ndataset_name: demo_dataset\n", encoding="utf-8")
+    experiment_path.write_text("model: demo_model\ndataset: demo_dataset\n", encoding="utf-8")
     search_path = tmp_path / "search"
     benchmark_path = tmp_path / "core.py"
     benchmark_path.write_text(
@@ -166,7 +167,7 @@ def test_load_benchmark_uses_explicit_path_and_config_name(tmp_path):
 
     assert loaded["name"] == "custom_benchmark"
     assert loaded["search_save_dir"] == str(search_path.resolve())
-    assert loaded["base_conf"]["model_name"] == "demo_model"
+    assert loaded["base_conf"]["model"] == "demo_model"
     assert loaded["param_space"] == {}
 
 
@@ -177,8 +178,8 @@ def test_run_benchmark_reports_val_metric_via_lightning_callback(tmp_path, monke
         "name": "demo_model_demo_dataset",
         "base_conf": {
             "task_name": "mtsf",
-            "model_name": "demo_model",
-            "dataset_name": "demo_dataset",
+            "model": "demo_model",
+            "dataset": "demo_dataset",
             "hist_len": 24,
             "pred_len": 12,
             "val_metric": "val/loss",
@@ -199,7 +200,7 @@ def test_run_benchmark_reports_val_metric_via_lightning_callback(tmp_path, monke
     monkeypatch.setattr(benchmark, "load_benchmark", lambda _: dict(benchmark_conf))
 
     def fake_run_experiment(conf, extra_callbacks=None):
-        run_calls.append((str(conf["exp_dir"]), list(extra_callbacks or [])))
+        run_calls.append((dict(conf), list(extra_callbacks or [])))
         trainer = SimpleNamespace(callback_metrics={"val/loss": 0.42}, sanity_checking=False)
         for callback in extra_callbacks or []:
             callback.on_validation_end(trainer, pl_module=None)
@@ -209,15 +210,21 @@ def test_run_benchmark_reports_val_metric_via_lightning_callback(tmp_path, monke
     result = benchmark.run_benchmark(str(tmp_path / "benchmark.py"), resume=False)
 
     assert os.environ["RAY_CHDIR_TO_TRIAL_DIR"] == "0"
-    assert Path(run_calls[0][0]).name == "trial_00000"
-    assert Path(run_calls[0][0]).parent.name == "search"
-    assert len(run_calls[0][1]) == 1
-    assert isinstance(run_calls[0][1][0], fake_lightning_integration.TuneReportCheckpointCallback)
-    assert run_calls[0][1][0].metrics == {"val/loss": "val/loss"}
-    assert run_calls[0][1][0].save_checkpoints is False
-    assert run_calls[0][1][0].on == "validation_end"
-    assert result == 0.42
-    assert "[best] val/loss=0.42" in capsys.readouterr().out
+    trial_conf, trial_callbacks = run_calls[0]
+    assert Path(trial_conf["exp_dir"]).name == "trial_00000"
+    assert Path(trial_conf["exp_dir"]).parent.name == "search"
+    assert trial_conf["seed_verbose"] is False
+    assert trial_conf["enable_progress_bar"] is False
+    assert trial_conf["enable_model_summary"] is False
+    assert len(trial_callbacks) == 1
+    assert isinstance(trial_callbacks[0], fake_lightning_integration.TuneReportCheckpointCallback)
+    assert trial_callbacks[0].metrics == {"val/loss": "val/loss"}
+    assert trial_callbacks[0].save_checkpoints is False
+    assert trial_callbacks[0].on == "validation_end"
+    assert fake_tune.Tuner.init_calls[-1].run_config.progress_reporter is None
+    assert fake_tune.Tuner.init_calls[-1].run_config.verbose == 0
+    assert result.get_best_result(metric="val/loss", mode="min", scope="all").metrics["val/loss"] == 0.42
+    assert capsys.readouterr().out == ""
     assert fake_tune.Tuner.restore_calls == []
     assert not (tmp_path / "search" / "trial_report.csv").exists()
     assert not (tmp_path / "search" / "best_trial_report.csv").exists()
@@ -230,8 +237,8 @@ def test_run_benchmark_uses_tuner_restore_for_resume(tmp_path, monkeypatch, caps
         "name": "demo_model_demo_dataset",
         "base_conf": {
             "task_name": "mtsf",
-            "model_name": "demo_model",
-            "dataset_name": "demo_dataset",
+            "model": "demo_model",
+            "dataset": "demo_dataset",
             "hist_len": 24,
             "pred_len": 12,
             "val_metric": "val/loss",
@@ -266,8 +273,8 @@ def test_run_benchmark_uses_tuner_restore_for_resume(tmp_path, monkeypatch, caps
     assert restore_param_space == {"lr": 0.02}
     assert restore_kwargs["resume_unfinished"] is True
     assert restore_kwargs["resume_errored"] is True
-    assert result == 0.31
-    assert "[best] val/loss=0.31" in capsys.readouterr().out
+    assert result.get_best_result(metric="val/loss", mode="min", scope="all").metrics["val/loss"] == 0.31
+    assert capsys.readouterr().out == ""
 
 
 def test_run_benchmark_returns_min_val_metric(tmp_path, monkeypatch):
@@ -276,8 +283,8 @@ def test_run_benchmark_returns_min_val_metric(tmp_path, monkeypatch):
         "name": "demo_model_demo_dataset",
         "base_conf": {
             "task_name": "mtsf",
-            "model_name": "demo_model",
-            "dataset_name": "demo_dataset",
+            "model": "demo_model",
+            "dataset": "demo_dataset",
             "hist_len": 24,
             "pred_len": 12,
             "val_metric": "val/loss",
@@ -309,7 +316,7 @@ def test_run_benchmark_returns_min_val_metric(tmp_path, monkeypatch):
     result = benchmark.run_benchmark(str(tmp_path / "benchmark.py"), resume=False)
 
     assert len(run_calls) == 1
-    assert result == 0.4
+    assert result.get_best_result(metric="val/loss", mode="min", scope="all").metrics["val/loss"] == 0.4
 
 
 def test_run_benchmark_resume_uses_tuner_restore(tmp_path, monkeypatch):
@@ -319,8 +326,8 @@ def test_run_benchmark_resume_uses_tuner_restore(tmp_path, monkeypatch):
         "name": "demo_model_demo_dataset",
         "base_conf": {
             "task_name": "mtsf",
-            "model_name": "demo_model",
-            "dataset_name": "demo_dataset",
+            "model": "demo_model",
+            "dataset": "demo_dataset",
             "hist_len": 24,
             "pred_len": 12,
             "val_metric": "val/loss",
@@ -350,4 +357,4 @@ def test_run_benchmark_resume_uses_tuner_restore(tmp_path, monkeypatch):
     result = benchmark.run_benchmark(str(tmp_path / "benchmark.py"), resume=True)
 
     assert fake_tune.Tuner.restore_calls
-    assert result == 0.3
+    assert result.get_best_result(metric="val/loss", mode="min", scope="all").metrics["val/loss"] == 0.3

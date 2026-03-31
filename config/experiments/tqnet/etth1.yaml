@@ -1,5 +1,5 @@
 # model
-model_name: TQNet
+model: TQNet
 cycle: 24
 cycle_feature_name: "time of day"
 d_model: 512
@@ -10,7 +10,7 @@ channel_aggre: true
 channel_aggre_heads: 4
 
 # data
-dataset_name: ETTh1
+dataset: ETTh1
 hist_len: 96
 pred_len: 96
 var_num: 7

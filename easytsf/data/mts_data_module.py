@@ -84,8 +84,8 @@ class BasicTSSequenceDataset(Dataset):
 class MTSDataModule(pl.LightningDataModule):
     def __init__(self, **kwargs):
         super().__init__()
-        self.config = kwargs
-        self.dataset_name = str(kwargs["dataset_name"])
+        self.config = dict(kwargs)
+        self.dataset = str(self.config["dataset"])
         self.var_num = int(kwargs["var_num"])
         self.num_workers = int(kwargs["num_workers"])
         self.batch_size = int(kwargs["batch_size"])
@@ -101,7 +101,7 @@ class MTSDataModule(pl.LightningDataModule):
         self.use_mmap = bool(kwargs.get("use_mmap", False))
 
         dataset_root = Path(kwargs["data_root"]).expanduser()
-        self.dataset_dir = dataset_root / self.dataset_name
+        self.dataset_dir = dataset_root / self.dataset
         self.meta_path, self.meta = load_dataset_meta(self.dataset_dir)
         self._setup_dataset()
 

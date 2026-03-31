@@ -46,7 +46,7 @@ def test_run_experiment_returns_val_metric_after_fit(tmp_path, monkeypatch):
     FakeTrainer.instances.clear()
 
     monkeypatch.setattr(experiment.L, "Trainer", FakeTrainer)
-    monkeypatch.setattr(experiment.L, "seed_everything", seed_calls.append)
+    monkeypatch.setattr(experiment.L, "seed_everything", lambda seed, verbose=True: seed_calls.append((seed, verbose)))
     monkeypatch.setattr(
         experiment,
         "get_task_registry_entry",
@@ -57,8 +57,8 @@ def test_run_experiment_returns_val_metric_after_fit(tmp_path, monkeypatch):
     result = experiment.run_experiment(
         {
             "task_name": "mtsf",
-            "model_name": "demo_model",
-            "dataset_name": "demo_dataset",
+            "model": "demo_model",
+            "dataset": "demo_dataset",
             "save_root": str(tmp_path),
             "seed": 7,
             "hist_len": 12,
@@ -77,7 +77,7 @@ def test_run_experiment_returns_val_metric_after_fit(tmp_path, monkeypatch):
 
     trainer = FakeTrainer.instances[-1]
     assert result == {"val/loss": 0.25}
-    assert seed_calls == [7]
+    assert seed_calls == [(7, True)]
     assert FakeDataModule.init_kwargs["exp_dir"] == str(exp_dir)
     assert FakeTask.init_kwargs["steps_per_epoch"] == 4
     assert trainer.kwargs["logger"].log_dir.rstrip("/") == str(exp_dir.resolve())
@@ -94,3 +94,27 @@ def test_cli_parser_rejects_removed_eval_flags():
         parser.parse_args(["demo", "--ckpt-path", "best"])
     with pytest.raises(SystemExit):
         parser.parse_args(["demo", "--print-conf"])
+
+
+def test_run_experiment_requires_explicit_task_name(monkeypatch):
+    monkeypatch.setattr(experiment.L, "seed_everything", lambda *args, **kwargs: None)
+
+    with pytest.raises(KeyError, match="task_name"):
+        experiment.run_experiment(
+            {
+                "model": "demo_model",
+                "dataset": "demo_dataset",
+                "save_root": "unused",
+                "seed": 7,
+                "hist_len": 12,
+                "pred_len": 3,
+                "accelerator": "cpu",
+                "devices": 1,
+                "val_metric": "val/loss",
+                "es_patience": 2,
+                "max_epochs": 5,
+                "gradient_clip_val": 0.0,
+                "lr_scheduler": "OneCycleLR",
+                "exp_dir": "unused",
+            }
+        )

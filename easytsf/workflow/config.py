@@ -89,13 +89,13 @@ def load_experiment_config(config_ref):
 def finalize_runtime_conf(base_conf, overrides=None):
     conf = dict(base_conf)
     if overrides:
-        conf.update({key: value for key, value in overrides.items() if value is not None})
+        merged_overrides = {key: value for key, value in overrides.items() if value is not None}
+        conf.update(merged_overrides)
 
-    conf["task_name"] = conf.get("task_name", "mtsf")
     conf["devices"] = parse_devices(conf.get("devices", "auto"))
     conf["accelerator"] = conf.get("accelerator", "auto")
     conf["conf_hash"] = cal_conf_hash(conf, hash_len=10)
     if not conf.get("exp_dir"):
-        exp_root = Path(conf["save_root"]) / "{}_{}".format(conf["model_name"], conf["dataset_name"])
+        exp_root = Path(conf["save_root"]) / "{}_{}".format(conf["model"], conf["dataset"])
         conf["exp_dir"] = str(exp_root / conf["conf_hash"] / "seed_{}".format(conf["seed"]))
     return conf

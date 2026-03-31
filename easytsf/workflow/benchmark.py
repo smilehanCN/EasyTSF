@@ -37,12 +37,16 @@ def _build_tune_reporter(param_space, metric, mode):
     )
 
 
-def _tune_train_func(hyper_conf, base_conf):
+def _tune_train_func(hyper_conf, base_conf, verbose=False):
     from ray import tune
     from ray.tune.integration.pytorch_lightning import TuneReportCheckpointCallback
 
     conf = finalize_runtime_conf(base_conf, overrides=hyper_conf)
     conf["exp_dir"] = str(Path(tune.get_context().get_trial_dir()).resolve())
+    if not verbose:
+        conf["seed_verbose"] = False
+        conf["enable_progress_bar"] = False
+        conf["enable_model_summary"] = False
     run_experiment(
         conf,
         extra_callbacks=[
@@ -55,7 +59,7 @@ def _tune_train_func(hyper_conf, base_conf):
     )
 
 
-def run_benchmark(benchmark_ref, resume=True):
+def run_benchmark(benchmark_ref, resume=True, verbose=False):
     benchmark_conf = load_benchmark(benchmark_ref)
     base_conf = dict(benchmark_conf["base_conf"])
     search_save_dir = Path(benchmark_conf["search_save_dir"]).expanduser().resolve()
@@ -76,8 +80,8 @@ def run_benchmark(benchmark_ref, resume=True):
             ray.init()
 
     metric = base_conf["val_metric"]
-    reporter = _build_tune_reporter(param_space, metric, "min")
-    trainable = tune.with_parameters(_tune_train_func, base_conf=base_conf)
+    reporter = _build_tune_reporter(param_space, metric, "min") if verbose else None
+    trainable = tune.with_parameters(_tune_train_func, base_conf=base_conf, verbose=verbose)
     trainable = tune.with_resources(
         trainable,
         resources={"cpu": search_config["cpus_per_trial"], "gpu": search_config["gpus_per_trial"]},
@@ -105,6 +109,7 @@ def run_benchmark(benchmark_ref, resume=True):
             run_config=tune.RunConfig(
                 name=search_experiment_name,
                 storage_path=str(search_storage_path),
+                verbose=1 if verbose else 0,
                 progress_reporter=reporter,
             ),
         )
@@ -122,9 +127,14 @@ def build_cli_parser():
         action="store_false",
         help="Disable reuse of existing benchmark artifacts.",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable Ray Tune progress tables and Lightning progress output.",
+    )
     return parser
 
 
 if __name__ == "__main__":
     args = build_cli_parser().parse_args()
-    run_benchmark(args.benchmark, resume=args.resume)
+    run_benchmark(args.benchmark, resume=args.resume, verbose=args.verbose)

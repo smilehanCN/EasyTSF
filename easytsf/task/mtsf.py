@@ -25,9 +25,9 @@ class MTSFTask(L.LightningModule):
         self.test_rmse = MeanSquaredError(squared=False)
 
     def _build_model(self):
-        model_name = self.hparams.model_name
+        model_name = self.hparams.model
         contract = get_model_contract(model_name)
-        contract.validate(getattr(self.hparams, "task_name", "mtsf"))
+        contract.validate(self.hparams.task_name)
 
         module_name = contract.module_name
         module = importlib.import_module(".{}".format(module_name), package="easytsf.model")
@@ -46,7 +46,7 @@ class MTSFTask(L.LightningModule):
         return model_cls(**model_args)
 
     def _build_scaler(self):
-        dataset_dir = Path(self.hparams.data_root).expanduser() / str(self.hparams.dataset_name)
+        dataset_dir = Path(self.hparams.data_root).expanduser() / str(self.hparams.dataset)
         mmap_mode = "r" if bool(getattr(self.hparams, "use_mmap", False)) else None
         train_variable = np.load(dataset_dir / "train_data.npy", mmap_mode=mmap_mode, allow_pickle=False)
         return StandardScaler.fit(train_variable)

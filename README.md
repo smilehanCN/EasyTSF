@@ -86,7 +86,7 @@ python -m easytsf.workflow.benchmark config/benchmarks/tqnet/core.py
 `mtsf` 数据集使用目录布局：
 
 ```text
-dataset/<dataset_name>/
+dataset/<dataset>/
   train_data.npy
   val_data.npy
   test_data.npy

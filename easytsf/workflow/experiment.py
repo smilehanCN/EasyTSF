@@ -11,9 +11,9 @@ from .config import finalize_runtime_conf, load_experiment_config, parse_config_
 
 
 def run_experiment(runtime_conf, extra_callbacks=None):
-    L.seed_everything(runtime_conf["seed"])
+    L.seed_everything(runtime_conf["seed"], verbose=bool(runtime_conf.get("seed_verbose", True)))
 
-    task_entry = get_task_registry_entry(runtime_conf.get("task_name", "mtsf"))
+    task_entry = get_task_registry_entry(runtime_conf["task_name"])
     datamodule = task_entry.datamodule_cls(**runtime_conf)
     runtime_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader())) # for OneCycleScheduler
     task = task_entry.task_cls(**runtime_conf)
@@ -49,6 +49,8 @@ def run_experiment(runtime_conf, extra_callbacks=None):
         gradient_clip_val=runtime_conf["gradient_clip_val"],
         default_root_dir=str(exp_dir),
         enable_checkpointing=True,
+        enable_progress_bar=runtime_conf.get("enable_progress_bar", True),
+        enable_model_summary=runtime_conf.get("enable_model_summary", True),
     )
     trainer.fit(task, datamodule=datamodule)
     return trainer.test(task, datamodule=datamodule, ckpt_path="best")
