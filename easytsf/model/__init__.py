@@ -1,7 +1,6 @@
-from .contracts import MODEL_CONTRACTS, get_maintained_model_names, get_model_contract
+from .registry import MODEL_REGISTRY, get_model_class
 
 __all__ = [
-    "MODEL_CONTRACTS",
-    "get_model_contract",
-    "get_maintained_model_names",
+    "MODEL_REGISTRY",
+    "get_model_class",
 ]

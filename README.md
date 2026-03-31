@@ -16,8 +16,8 @@ EasyTSF 是一个面向多变量时序预测研究的轻量实验框架，目标
 - `config/experiments/<model_id>/*.yaml`：单实验 preset
 - `config/benchmarks/<model_id>/*.py`：批量 benchmark 声明
 - `easytsf/data/`：`MTSDataModule` 和 sequence-only 数据加载逻辑
-- `easytsf/task/`：`MTSFTask` 与 task registry
-- `easytsf/model/`：模型实现
+- `easytsf/task/`：task 实现与最小 registry
+- `easytsf/model/`：模型实现与最小 registry
 - `easytsf/workflow/`：experiment / benchmark 的配置加载和执行
 
 ## 环境

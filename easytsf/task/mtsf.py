@@ -1,4 +1,3 @@
-import importlib
 import inspect
 from pathlib import Path
 
@@ -9,7 +8,7 @@ import torch.nn as nn
 import torch.optim.lr_scheduler as lrs
 from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError
 
-from easytsf.model import get_model_contract
+from easytsf.model import get_model_class
 from easytsf.data.scaler import StandardScaler
 
 
@@ -26,14 +25,7 @@ class MTSFTask(L.LightningModule):
 
     def _build_model(self):
         model_name = self.hparams.model
-        contract = get_model_contract(model_name)
-        contract.validate(self.hparams.task)
-
-        module_name = contract.module_name
-        module = importlib.import_module(".{}".format(module_name), package="easytsf.model")
-        if not hasattr(module, "Model"):
-            raise ValueError("easytsf.model.{} must define a top-level Model class".format(module_name))
-        model_cls = getattr(module, "Model")
+        model_cls = get_model_class(model_name)
         model_args = {}
         for name, parameter in inspect.signature(model_cls.__init__).parameters.items():
             if name == "self" or parameter.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}:
