@@ -8,7 +8,7 @@ from .mtsf import MTSFTask
 
 @dataclass(frozen=True)
 class TaskRegistryEntry:
-    task_name: str
+    task: str
     datamodule_cls: type
     task_cls: type
     stability: str = "maintained"
@@ -16,20 +16,20 @@ class TaskRegistryEntry:
 
 TASK_REGISTRY = {
     "mtsf": TaskRegistryEntry(
-        task_name="mtsf",
+        task="mtsf",
         datamodule_cls=MTSDataModule,
         task_cls=MTSFTask,
     ),
 }
 
 
-def get_task_registry_entry(task_name):
+def get_task_entry(task):
     try:
-        return TASK_REGISTRY[task_name]
+        return TASK_REGISTRY[task]
     except KeyError as exc:
         raise ValueError(
-            "unsupported task_name: {}; supported task names are {}".format(
-                task_name,
+            "unsupported task: {}; supported tasks are {}".format(
+                task,
                 sorted(TASK_REGISTRY),
             )
         ) from exc

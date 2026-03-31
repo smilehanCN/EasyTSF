@@ -12,7 +12,7 @@ def test_load_experiment_config_supports_absolute_path(tmp_path):
     conf = workflow_config.load_experiment_config(str(config_path))
 
     assert conf["model"] == "demo_model"
-    assert "task_name" not in conf
+    assert "task" not in conf
 
 
 def test_load_experiment_config_supports_relative_path(tmp_path, monkeypatch):
@@ -24,7 +24,7 @@ def test_load_experiment_config_supports_relative_path(tmp_path, monkeypatch):
     conf = workflow_config.load_experiment_config("configs/demo.yaml")
 
     assert conf["dataset"] == "demo_dataset"
-    assert "task_name" not in conf
+    assert "task" not in conf
 
 
 def test_finalize_runtime_conf_applies_overrides_and_defaults():
@@ -39,7 +39,7 @@ def test_finalize_runtime_conf_applies_overrides_and_defaults():
     )
 
     assert conf["model"] == "override_model"
-    assert "task_name" not in conf
+    assert "task" not in conf
 
 
 def test_finalize_runtime_conf_ignores_none_override_values():
@@ -49,12 +49,12 @@ def test_finalize_runtime_conf_ignores_none_override_values():
             "dataset": "demo_dataset",
             "save_root": "save",
             "seed": 0,
-            "task_name": "mtsf",
+            "task": "mtsf",
         },
-        overrides={"task_name": None},
+        overrides={"task": None},
     )
 
-    assert conf["task_name"] == "mtsf"
+    assert conf["task"] == "mtsf"
 
 
 def test_finalize_runtime_conf_naturally_fails_with_legacy_aliases():
@@ -63,7 +63,7 @@ def test_finalize_runtime_conf_naturally_fails_with_legacy_aliases():
             {
                 "model_name": "base_model",
                 "dataset_name": "demo_dataset",
-                "task_name": "mtsf",
+                "task": "mtsf",
                 "save_root": "save",
                 "seed": 0,
             }

@@ -27,7 +27,7 @@ class MTSFTask(L.LightningModule):
     def _build_model(self):
         model_name = self.hparams.model
         contract = get_model_contract(model_name)
-        contract.validate(self.hparams.task_name)
+        contract.validate(self.hparams.task)
 
         module_name = contract.module_name
         module = importlib.import_module(".{}".format(module_name), package="easytsf.model")

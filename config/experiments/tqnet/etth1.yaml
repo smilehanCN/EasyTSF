@@ -32,7 +32,7 @@ val_metric: val/loss
 test_metric_space: scaled
 
 # runtime
-task_name: mtsf
+task: mtsf
 num_workers: 2
 pin_memory: null
 persistent_workers: null

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ModelContract:
     model_name: str
-    supported_task_names: tuple[str, ...]
+    supported_tasks: tuple[str, ...]
     maintenance_tier: str = "maintained"
     note: str = ""
 
@@ -18,13 +18,13 @@ class ModelContract:
     def is_legacy(self):
         return self.maintenance_tier == "legacy"
 
-    def validate(self, task_name):
-        if task_name not in self.supported_task_names:
+    def validate(self, task):
+        if task not in self.supported_tasks:
             raise ValueError(
                 "model '{}' does not support task '{}'; supported tasks are {}".format(
                     self.model_name,
-                    task_name,
-                    list(self.supported_task_names),
+                    task,
+                    list(self.supported_tasks),
                 )
             )
 

@@ -26,7 +26,7 @@ Config merge priority is fixed:
 
 `experiment + runtime overrides`
 
-Every experiment preset must be self-contained and explicitly set `task_name: mtsf`.
+Every experiment preset must be self-contained and explicitly set `task: mtsf`.
 
 ### Data
 

@@ -36,7 +36,7 @@ def test_test_step_accepts_non_contiguous_predictions(monkeypatch):
     monkeypatch.setattr(MTSFTask, "_build_model", lambda self: NonContiguousPredictionModel(pred_len=2))
 
     task = MTSFTask(
-        task_name="mtsf",
+        task="mtsf",
         model="dummy",
         data_root="unused",
         dataset="unused",

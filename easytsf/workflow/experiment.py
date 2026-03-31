@@ -5,7 +5,7 @@ import lightning.pytorch as L
 from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger
 
-from easytsf.task import get_task_registry_entry
+from easytsf.task import get_task_entry
 
 from .config import finalize_runtime_conf, load_experiment_config, parse_config_overrides
 
@@ -13,7 +13,7 @@ from .config import finalize_runtime_conf, load_experiment_config, parse_config_
 def run_experiment(runtime_conf, extra_callbacks=None):
     L.seed_everything(runtime_conf["seed"], verbose=bool(runtime_conf.get("seed_verbose", True)))
 
-    task_entry = get_task_registry_entry(runtime_conf["task_name"])
+    task_entry = get_task_entry(runtime_conf["task"])
     datamodule = task_entry.datamodule_cls(**runtime_conf)
     runtime_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader())) # for OneCycleScheduler
     task = task_entry.task_cls(**runtime_conf)

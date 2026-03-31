@@ -144,7 +144,7 @@ def _install_fake_ray(monkeypatch):
 
 def test_load_benchmark_uses_explicit_path_and_config_name(tmp_path):
     experiment_path = tmp_path / "experiment.yaml"
-    experiment_path.write_text("model: demo_model\ndataset: demo_dataset\n", encoding="utf-8")
+    experiment_path.write_text("task: mtsf\nmodel: demo_model\ndataset: demo_dataset\n", encoding="utf-8")
     search_path = tmp_path / "search"
     benchmark_path = tmp_path / "core.py"
     benchmark_path.write_text(
@@ -177,7 +177,7 @@ def test_run_benchmark_reports_val_metric_via_lightning_callback(tmp_path, monke
     benchmark_conf = {
         "name": "demo_model_demo_dataset",
         "base_conf": {
-            "task_name": "mtsf",
+            "task": "mtsf",
             "model": "demo_model",
             "dataset": "demo_dataset",
             "hist_len": 24,
@@ -236,7 +236,7 @@ def test_run_benchmark_uses_tuner_restore_for_resume(tmp_path, monkeypatch, caps
     benchmark_conf = {
         "name": "demo_model_demo_dataset",
         "base_conf": {
-            "task_name": "mtsf",
+            "task": "mtsf",
             "model": "demo_model",
             "dataset": "demo_dataset",
             "hist_len": 24,
@@ -282,7 +282,7 @@ def test_run_benchmark_returns_min_val_metric(tmp_path, monkeypatch):
     benchmark_conf = {
         "name": "demo_model_demo_dataset",
         "base_conf": {
-            "task_name": "mtsf",
+            "task": "mtsf",
             "model": "demo_model",
             "dataset": "demo_dataset",
             "hist_len": 24,
@@ -325,7 +325,7 @@ def test_run_benchmark_resume_uses_tuner_restore(tmp_path, monkeypatch):
     benchmark_conf = {
         "name": "demo_model_demo_dataset",
         "base_conf": {
-            "task_name": "mtsf",
+            "task": "mtsf",
             "model": "demo_model",
             "dataset": "demo_dataset",
             "hist_len": 24,

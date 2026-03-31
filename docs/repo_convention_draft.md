@@ -72,7 +72,7 @@ experiment preset 使用 flat YAML，并通过注释块区分：
 
 `experiment preset < runtime overrides`
 
-experiment preset 必须自包含完整 recipe，并显式声明 `task_name: mtsf`。如果要支持新的任务，必须先明确仓库目标变化，再讨论新增公开 task。
+experiment preset 必须自包含完整 recipe，并显式声明 `task: mtsf`。如果要支持新的任务，必须先明确仓库目标变化，再讨论新增公开 task。
 
 ## 5. 数据规范
 

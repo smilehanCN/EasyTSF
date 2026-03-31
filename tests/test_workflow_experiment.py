@@ -49,14 +49,14 @@ def test_run_experiment_returns_val_metric_after_fit(tmp_path, monkeypatch):
     monkeypatch.setattr(experiment.L, "seed_everything", lambda seed, verbose=True: seed_calls.append((seed, verbose)))
     monkeypatch.setattr(
         experiment,
-        "get_task_registry_entry",
+        "get_task_entry",
         lambda _: SimpleNamespace(datamodule_cls=FakeDataModule, task_cls=FakeTask),
     )
 
     exp_dir = tmp_path / "run"
     result = experiment.run_experiment(
         {
-            "task_name": "mtsf",
+            "task": "mtsf",
             "model": "demo_model",
             "dataset": "demo_dataset",
             "save_root": str(tmp_path),
@@ -96,10 +96,10 @@ def test_cli_parser_rejects_removed_eval_flags():
         parser.parse_args(["demo", "--print-conf"])
 
 
-def test_run_experiment_requires_explicit_task_name(monkeypatch):
+def test_run_experiment_requires_explicit_task(monkeypatch):
     monkeypatch.setattr(experiment.L, "seed_everything", lambda *args, **kwargs: None)
 
-    with pytest.raises(KeyError, match="task_name"):
+    with pytest.raises(KeyError, match="task"):
         experiment.run_experiment(
             {
                 "model": "demo_model",
