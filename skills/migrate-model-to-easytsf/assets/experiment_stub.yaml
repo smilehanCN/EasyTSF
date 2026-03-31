@@ -1,28 +1,21 @@
 # model
-model: TQNet
-cycle: 168
-cycle_feature_name: "time of week"
-d_model: 512
-dropout: 0.0
-use_revin: true
-use_tq: true
-channel_aggre: true
-channel_aggre_heads: 4
+model: YourModelName
+# add model-specific keys here
 
 # data
-dataset: Electricity
+dataset: YourDataset
 hist_len: 96
 pred_len: 96
-var_num: 321
-time_feature_descriptions:
-  - time of day
-  - day of week
+var_num: 1
+# optional:
+# time_feature_descriptions:
+#   - time of day
 
 # train
 seed: 42
 batch_size: 32
 max_epochs: 30
-lr: 0.003
+lr: 0.001
 lr_scheduler: OneCycleLR
 lrs_pct_start: 0.3
 es_patience: 5
@@ -30,7 +23,7 @@ optimizer: Adam
 gradient_clip_val: 0.0
 gradient_clip_algorithm: norm
 val_metric: val/loss
-test_metric_space: scaled
+test_metric_space: original
 
 # runtime
 task: mtsf
@@ -41,4 +34,4 @@ prefetch_factor: 2
 use_mmap: false
 data_root: dataset
 save_root: checkpoint
-devices: [0]
+devices: auto

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Migrate Model to EasyTSF"
+  short_description: "Map external model code onto EasyTSF"
+  default_prompt: "Use $migrate-model-to-easytsf to assess this external forecasting model and produce an EasyTSF-ready model plus one example experiment preset."
+policy:
+  allow_implicit_invocation: true
