@@ -1,119 +1,106 @@
 # EasyTSF 中文导读
 
-这个文档不是英文 README 的逐字翻译，而是面向组内同学和中文读者的快速上手说明。根目录 [README.md](../README.md) 负责对外开源入口，这里重点讲仓库怎么跑、怎么迁移模型、怎么配合 Codex 使用。
+这个文档不是英文 README 的逐字翻译，而是面向组内同学和中文读者的快速说明。根目录 [README.md](../README.md) 负责对外开源入口，这里用中文介绍仓库的 workflow 设计、skill 设计，以及如何迁移模型。
 
-## 仓库定位
+## 概览
 
-EasyTSF 当前维护的是一条很窄但稳定的主链路：
+EasyTSF（**E**xperiment-friendly **A**ssistant for **Y**our **T**ime-**S**eries **F**orecasting）强调两个方向：对人类研究者，提供可复现的 workflow；对 AI agent，提供可复用的 skills。
 
-- 任务只维护 `mtsf`
-- 数据只走 sequence-only 路径
-- 实验入口是 `experiment preset < runtime overrides`
-- benchmark 用 Ray Tune 编排
-- 模型迁移优先服务“把别的项目模型接到当前仓库”，不是扩成通用时序平台
+EasyTSF 是一个基于 Lightning 的轻量级时序预测算法库，强调可复现的 workflow 和对 agent 友好的 skills：
 
-如果外部模型依赖 graph side input、额外 decoder state、特殊 datamodule 或其他当前 `mtsf` 不提供的输入，默认先评估并停下，不偷偷扩仓库边界。
+- Workflow design：面向研究人员，提供从模型代码到可复现实验和 benchmark 的低心智负担路径。
+- Skill design：面向 AI agent，提供清晰的仓库约定，便于理解、迁移和使用项目。
 
-## 最短运行链路
+中文读者也建议先配合阅读英文版 [README.md](../README.md)。
 
-安装：
+## Workflow Design
+
+Workflow design 是 EasyTSF 面向人的协作契约，围绕时序预测研究和应用中的三个关键 workflow 展开：
+
+### Experiment, Benchmark and Report
+
+`experiment` 是基础单元。下面的 Quick Start 会先运行一次 `experiment`；`benchmark` 在这个基础上批量运行实验用于调参，`report` 再把这些结果整理成可读汇总。
+
+- `experiment`：运行单次实验，用于调试模型代码和训练行为，也是 `benchmark` 的基础。
+- `benchmark`：根据 benchmark 配置批量运行实验，是超参数搜索和优化的主要路径。
+- `report`：对批量实验结果做汇总，便于比较和分析。
+
+这些 workflow 构建在 Lightning 之上，同时把静态 preset 和运行时 override 分开，让研究人员可以更顺畅地从单次调试走到批量评估。
+
+### Quick Start
+
+需要 Python `>=3.11`。
+
+安装到当前 Python 环境：
 
 ```bash
 python -m pip install -e .
 ```
 
-轻量校验：
+运行一个单次 experiment：
 
 ```bash
-python -m compileall easytsf
+python -m easytsf.workflow.experiment config/experiments/tqnet/etth1.yaml
 ```
 
-跑一个现成 experiment：
-
-```bash
-python -m easytsf.workflow.experiment config/experiments/tqnet/etth1.yaml \
-  --set data_root=dataset \
-  --set save_root=checkpoint \
-  --set accelerator=auto \
-  --set devices=auto
-```
-
-跑 benchmark：
+运行 benchmark：
 
 ```bash
 python -m easytsf.workflow.benchmark config/benchmarks/tqnet/core.py
 ```
 
-导出 benchmark 汇总：
+生成 benchmark 结果汇总：
 
 ```bash
-python -m easytsf.workflow.report config/benchmarks/tqnet/core.py \
-  --out save/benchmarks/tqnet_electricity/report.csv
+python -m easytsf.workflow.report config/benchmarks/tqnet/core.py
 ```
 
-## 模型迁移最小改动面
+## Skill Design
 
-把其他项目的模型迁进 EasyTSF 时，先盯住这几个硬约束：
+Skill design 是 EasyTSF 面向 AI 的协作契约。Skill 把仓库约定整理成可复用接口，帮助 AI agent 更稳定地理解工作流并使用项目。当前仓库内置了 `migrate-model-to-easytsf`，后续还可以继续扩展更多 Skill。
 
-1. 模型文件要落在 `easytsf/model/<model_id>.py`，并暴露顶层 `Model` 类。
-2. `Model.__init__` 必须写显式参数名，因为 `MTSFTask` 会根据构造签名从 flat config 自动传参。
-3. `forward` 必须适配成 `forward(var_x, marker_x, marker_y)`。
-4. 输出默认要和标签兼容，通常是 `[B, pred_len, N]`。
-5. 新模型至少要补一个 `config/experiments/<model_id>/xxx.yaml`。
+### Install the Skill
 
-额外注意：
-
-- `var_x` 是缩放后的输入变量
-- `marker_x` / `marker_y` 是时间特征，如果模型不用，显式 `del` 掉
-- `meta.json` 当前要求有 `frequency (minutes)` 和 `timestamps_description`
-- 外部项目里的嵌套配置，迁进来后要摊平成 EasyTSF 的 flat YAML 键
-
-## 用 Codex 迁移外部模型
-
-先把仓库里的 skill 手动放到本地 Codex skills 目录。Codex 默认会从 `${CODEX_HOME}/skills` 读取；如果没设 `CODEX_HOME`，通常就是 `~/.codex/skills`。
+要在本地使用仓库里的 Skill，可以手动放到 Codex 的 skills 目录。Codex 会优先从 `${CODEX_HOME}/skills` 读取；如果没有设置 `CODEX_HOME`，通常就是 `~/.codex/skills`。
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
 cp -R skills/migrate-model-to-easytsf "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
-如果你希望 skill 跟仓库内改动保持同步，可以改成软链：
+如果你希望 Skill 与仓库内改动保持同步，可以改成软链：
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
 ln -s "$(pwd)/skills/migrate-model-to-easytsf" "${CODEX_HOME:-$HOME/.codex}/skills/migrate-model-to-easytsf"
 ```
 
-这个 skill 的职责很窄：用户给出外部项目的模型代码、类定义、`forward` 逻辑或配置片段后，帮助判断能否迁入当前 EasyTSF `mtsf` 路径；如果能，就生成 EasyTSF 里的 model 和一个 experiment preset 草案所需的映射。
+### Migrate a Model into EasyTSF
 
-如果你只是想复习论文，不需要这个 skill，直接正常提问即可。
+把其他项目的模型迁进 EasyTSF 时，尽量保持改动面小而明确：
 
-## 可复制 Prompt
+1. 模型文件放在 `easytsf/model/<model_id>.py`，并暴露顶层 `Model` 类。
+2. `Model.__init__` 必须写显式参数名，因为 `MTSFTask` 会根据构造签名从 flat config 自动传参。
+3. `forward` 适配成 `forward(var_x, marker_x, marker_y)`。
+4. 输出要和标签兼容，通常是 `[B, pred_len, N]`。
+5. 在 `easytsf/model/registry.py` 中注册模型。
+6. 至少补一个 `config/experiments/<model_id>/` 下的可运行 preset。
+7. 只有当模型已经适合做搜索时，再补 benchmark 配置。
 
-仓库导读：
+如果外部模型依赖 graph side input、decoder cache，或者当前 EasyTSF workflow 没有提供的自定义数据契约，就应该先停下来重新设计，而不是悄悄扩张仓库边界。
 
-```text
-先阅读这个仓库，告诉我 EasyTSF 当前真正维护的主链路是什么，哪些模型只是注册了代码但还没有完整 preset 或 benchmark，并给我一个最短上手路径。
-```
-
-基于外部项目代码做迁移评估：
-
-```text
-Use $migrate-model-to-easytsf to inspect this external forecasting model implementation. Check whether it fits the current EasyTSF mtsf path. If it does not fit, stop with an incompatibility report that names the unsupported inputs or abstractions.
-```
-
-基于外部项目代码生成 EasyTSF 版 model + experiment 草案：
+当你已经有外部模型代码，并希望把它映射到 EasyTSF 时，可以直接使用这个 Skill：
 
 ```text
-Use $migrate-model-to-easytsf to read this external model code and produce the EasyTSF migration result: the target Model.__init__ parameter list, the forward(var_x, marker_x, marker_y) adaptation, the required flat config keys, and one example experiment preset draft.
+Use $migrate-model-to-easytsf to inspect this external forecasting model implementation and tell me whether it fits the current EasyTSF contract. If it fits, generate an EasyTSF-ready model plan plus one experiment preset draft. If it does not fit, stop with an incompatibility report.
 ```
 
-## 论文阅读和复习
-
-如果只是读论文、做复习或做模型对比，直接用普通 prompt：
+如果你只是想读论文或做模型比较，直接使用普通 prompt 即可：
 
 ```text
-总结这篇时序预测论文的核心结构，并和 EasyTSF 里已经注册的模型做对比，告诉我它在当前 mtsf 契约下是否容易迁移。
+Summarize this forecasting paper, compare it with the models already registered in EasyTSF, and tell me whether it looks compatible with the current EasyTSF contract before we touch any code.
 ```
 
-更严格的仓库级协作约束见 [AGENT.md](../AGENT.md)。
+更严格的仓库级迁移规则见 [AGENT.md](../AGENT.md)。
+
+Skill 的事实来源在 [`skills/migrate-model-to-easytsf/`](../skills/migrate-model-to-easytsf/)。

@@ -1,49 +1,31 @@
 # EasyTSF
 
-**E**xperiment-friendly **As**sistant for **Y**our **T**ime-**S**eries **F**orecasting. Built for humans, ready for AI.
+## Overview
+EasyTSF (**E**xperiment-friendly **A**ssistant for **Y**our **T**ime-**S**eries **F**orecasting): easy for humans, easy for AI.
 
-EasyTSF is a lightweight multivariate forecasting algorithm library with a reproducible experiment and benchmark workflow. The repository intentionally keeps the public surface small so researchers can move from an external implementation to a runnable `mtsf` experiment without inheriting a large framework.
+EasyTSF is a lightweight time-series forecasting algorithm library built on Lightning, with reproducible workflows and agent-friendly skills:
+- Workflow design for researchers who want a clear, low-overhead path from model code to reproducible experiments and benchmarks.
+- Skill design for AI agents that need explicit repository conventions to inspect, migrate, and use models correctly.
 
 For a Chinese companion guide, see [docs/readme_cn.md](docs/readme_cn.md).
 
-## Overview
+## Workflow Design
 
-- Maintain one public task path: multivariate time-series forecasting (`mtsf`)
-- Keep experiment presets explicit and reproducible
-- Support benchmark search with a small workflow API
-- Optimize for migrating forecasting models into a stable repository contract
+Workflow design is the human-facing contract in EasyTSF. It is built around three workflows that cover the core loop of time-series forecasting research and application:
 
-## Repository Scope
+### Experiment, Benchmark and Report
 
-EasyTSF currently maintains:
+`experiment` is the base unit. The Quick Start example below runs one `experiment`; `benchmark` expands that unit into many runs for parameter tuning, and `report` aggregates those runs into a readable summary.
 
-- `mtsf` as the only public task
-- Runnable experiment presets under `config/experiments/`
-- Benchmark search configs under `config/benchmarks/`
-- Sequence-only data loading under `easytsf/data/`
-- Small registries for task and model lookup
+- `experiment`: run a single experiment. This is the smallest runnable unit, used to debug model code and training behavior, and it is also the foundation of `benchmark`.
+- `benchmark`: run batches of experiments from a benchmark config. This is the main path for hyperparameter search and optimization.
+- `report`: summarize batch experiment outputs into comparable results for inspection and analysis.
 
-EasyTSF does not maintain:
+These workflows build on Lightning, keep the maintained path intentionally small, and separate static experiment presets from runtime overrides so researchers can move from single-run debugging to batch evaluation with less cognitive overhead.
 
-- grid tasks
-- generic TSF abstractions
-- `npz` dataset compatibility
-- plugin-style runners
-- graph side inputs or other extra inputs on the maintained `mtsf` path
+### Quick Start
 
-## Models in Repository
-
-The following models are registered in `easytsf/model/registry.py`.
-
-| Registered     | Example preset                    | Benchmark example                 | Notes                                                                                                                                  |
-| -------------- | --------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `iTransformer` | No                                | No                                | Registered model file only; add your own preset before treating it as a maintained path.                                               |
-| `TQNet`        | `config/experiments/tqnet/*.yaml` | `config/benchmarks/tqnet/core.py` | Current fully wired example path.                                                                                                      |
-| `STGCN`        | No                                | No                                | Registered model file only; initialization currently requires `graph`, which the maintained `mtsf` path does not inject automatically. |
-| `STID`         | No                                | No                                | Registered model file only; no shipped preset yet.                                                                                     |
-| `SparseTSF`    | No                                | No                                | Registered model file only; no shipped preset yet.                                                                                     |
-
-## Quick Start
+Use Python `>=3.11`.
 
 Install the package into your active Python environment:
 
@@ -51,75 +33,11 @@ Install the package into your active Python environment:
 python -m pip install -e .
 ```
 
-Run a lightweight repository check:
-
-```bash
-python -m compileall easytsf
-```
-
 Run a single experiment from the CLI:
 
 ```bash
-python -m easytsf.workflow.experiment config/experiments/tqnet/etth1.yaml \
-  --set data_root=dataset \
-  --set save_root=checkpoint \
-  --set accelerator=auto \
-  --set devices=auto
+python -m easytsf.workflow.experiment config/experiments/tqnet/etth1.yaml
 ```
-
-Run a single experiment from Python:
-
-```python
-from easytsf.workflow import finalize_runtime_conf, load_experiment_config, run_experiment
-
-base_conf = load_experiment_config("config/experiments/tqnet/etth1.yaml")
-runtime_conf = finalize_runtime_conf(
-    base_conf,
-    overrides={
-        "data_root": "dataset",
-        "save_root": "checkpoint",
-        "accelerator": "auto",
-        "devices": "auto",
-    },
-)
-run_experiment(runtime_conf)
-```
-
-## Dataset Contract
-
-The maintained `mtsf` dataset layout is directory-based:
-
-```text
-dataset/<dataset>/
-  train_data.npy
-  val_data.npy
-  test_data.npy
-  train_timestamps.npy
-  val_timestamps.npy
-  test_timestamps.npy
-  meta.json
-```
-
-Repository expectations:
-
-- `*_data.npy` must be shaped `[L, N]`
-- Univariate forecasting still uses `[L, 1]`, not bare `[L]`
-- All splits must agree on the channel dimension
-- All splits must provide timestamp arrays
-- `meta.json` must contain `timestamps_description`
-- `meta.json` must contain `frequency (minutes)` because timestamp restoration depends on it
-
-If a model needs time features, `time_feature_descriptions` in the experiment config selects which timestamp columns the datamodule forwards into `marker_x` and `marker_y`.
-
-## Experiment/Benchmark Workflow
-
-EasyTSF keeps the runtime contract explicit:
-
-```text
-experiment preset < runtime overrides
-```
-
-An experiment preset is the static recipe. Runtime-specific values such as `data_root`, `save_root`, `seed`, `devices`, and `accelerator` should be overridden at run time instead of hard-coded into model logic.
 
 Run benchmark search:
 
@@ -130,29 +48,16 @@ python -m easytsf.workflow.benchmark config/benchmarks/tqnet/core.py
 Build a benchmark report from search outputs:
 
 ```bash
-python -m easytsf.workflow.report config/benchmarks/tqnet/core.py \
-  --out save/benchmarks/tqnet_electricity/report.csv
+python -m easytsf.workflow.report config/benchmarks/tqnet/core.py
 ```
 
-## Migrate a Model into EasyTSF
+## Skill Design
 
-When bringing in a model from another project, keep the adaptation minimal and explicit:
+Skill design is the AI-facing contract in EasyTSF. Skills turn repository conventions into reusable interfaces so AI agents can understand repository workflows and use the project more reliably. The current repository ships `migrate-model-to-easytsf`, and more Skills can be added over time.
 
-1. Add `easytsf/model/<model_id>.py` with a top-level `Model` class.
-2. Expose constructor arguments as explicit `Model.__init__` parameters. `MTSFTask` reads the signature and passes flat config keys by name.
-3. Adapt the forward interface to `forward(var_x, marker_x, marker_y)`.
-4. Return predictions that are label-compatible, typically `[B, pred_len, N]`.
-5. Register the model in `easytsf/model/registry.py`.
-6. Add at least one runnable preset under `config/experiments/<model_id>/`.
-7. Add benchmark wiring only if the migrated model is ready for search.
+### Install the Skill
 
-If the external model depends on unsupported inputs such as graph side input, decoder caches, or a custom dataset contract that the current `mtsf` path does not provide, stop and redesign explicitly instead of silently expanding the repository scope.
-
-The repository-level migration rules for Codex live in [AGENT.md](AGENT.md).
-
-## Use Codex with EasyTSF
-
-To use the repository version of the migration skill, place it into your local Codex skills directory manually. Codex auto-discovers skills from `${CODEX_HOME}/skills` when `CODEX_HOME` is set, otherwise from `~/.codex/skills`.
+To use the repository version locally, place it into your Codex skills directory manually. Codex auto-discovers skills from `${CODEX_HOME}/skills` when `CODEX_HOME` is set, otherwise from `~/.codex/skills`.
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
@@ -166,21 +71,32 @@ mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
 ln -s "$(pwd)/skills/migrate-model-to-easytsf" "${CODEX_HOME:-$HOME/.codex}/skills/migrate-model-to-easytsf"
 ```
 
-Use the skill when you already have external model code and want to map it into EasyTSF:
+### Migrate a Model into EasyTSF
+
+When bringing in a model from another project, keep the adaptation minimal and explicit:
+
+1. Add `easytsf/model/<model_id>.py` with a top-level `Model` class.
+2. Expose constructor arguments as explicit `Model.__init__` parameters. `MTSFTask` reads the signature and passes flat config keys by name.
+3. Adapt the forward interface to `forward(var_x, marker_x, marker_y)`.
+4. Return predictions that are label-compatible, typically `[B, pred_len, N]`.
+5. Register the model in `easytsf/model/registry.py`.
+6. Add at least one runnable preset under `config/experiments/<model_id>/`.
+7. Add benchmark wiring only if the migrated model is ready for search.
+
+If the external model depends on unsupported inputs such as graph side input, decoder caches, or a custom dataset contract that the current EasyTSF workflow does not provide, stop and redesign explicitly instead of silently expanding the repository scope.
+
+Use the Skill when you already have external model code and want to map it into EasyTSF:
 
 ```text
-Use $migrate-model-to-easytsf to inspect this external forecasting model implementation and tell me whether it fits the current EasyTSF mtsf path. If it fits, generate an EasyTSF-ready model plan plus one experiment preset draft. If it does not fit, stop with an incompatibility report.
+Use $migrate-model-to-easytsf to inspect this external forecasting model implementation and tell me whether it fits the current EasyTSF contract. If it fits, generate an EasyTSF-ready model plan plus one experiment preset draft. If it does not fit, stop with an incompatibility report.
 ```
 
-Use a normal prompt when you only want to read or compare papers:
+Use a normal prompt instead when you only want to read or compare papers:
 
 ```text
-Summarize this forecasting paper, compare it with the models already registered in EasyTSF, and tell me whether it looks compatible with the current mtsf contract before we touch any code.
+Summarize this forecasting paper, compare it with the models already registered in EasyTSF, and tell me whether it looks compatible with the current EasyTSF contract before we touch any code.
 ```
 
-The skill source of truth lives in [`skills/migrate-model-to-easytsf/`](skills/migrate-model-to-easytsf/).
+The repository-level migration rules for Codex live in [AGENT.md](AGENT.md).
 
-## Chinese Guide
-
-- Chinese onboarding guide: [docs/readme_cn.md](docs/readme_cn.md)
-- Codex repository contract: [AGENT.md](AGENT.md)
+The Skill source of truth lives in [`skills/migrate-model-to-easytsf/`](skills/migrate-model-to-easytsf/).
