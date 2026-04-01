@@ -1,5 +1,7 @@
 # EasyTSF
 
+**E**xperiment-friendly **As**sistant for **Y**our **T**ime-**S**eries **F**orecasting. Built for humans, ready for AI.
+
 EasyTSF is a lightweight multivariate forecasting algorithm library with a reproducible experiment and benchmark workflow. The repository intentionally keeps the public surface small so researchers can move from an external implementation to a runnable `mtsf` experiment without inheriting a large framework.
 
 For a Chinese companion guide, see [docs/readme_cn.md](docs/readme_cn.md).
@@ -33,13 +35,13 @@ EasyTSF does not maintain:
 
 The following models are registered in `easytsf/model/registry.py`.
 
-| Registered | Example preset | Benchmark example | Notes |
-| --- | --- | --- | --- |
-| `iTransformer` | No | No | Registered model file only; add your own preset before treating it as a maintained path. |
-| `TQNet` | `config/experiments/tqnet/*.yaml` | `config/benchmarks/tqnet/core.py` | Current fully wired example path. |
-| `STGCN` | No | No | Registered model file only; initialization currently requires `graph`, which the maintained `mtsf` path does not inject automatically. |
-| `STID` | No | No | Registered model file only; no shipped preset yet. |
-| `SparseTSF` | No | No | Registered model file only; no shipped preset yet. |
+| Registered     | Example preset                    | Benchmark example                 | Notes                                                                                                                                  |
+| -------------- | --------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `iTransformer` | No                                | No                                | Registered model file only; add your own preset before treating it as a maintained path.                                               |
+| `TQNet`        | `config/experiments/tqnet/*.yaml` | `config/benchmarks/tqnet/core.py` | Current fully wired example path.                                                                                                      |
+| `STGCN`        | No                                | No                                | Registered model file only; initialization currently requires `graph`, which the maintained `mtsf` path does not inject automatically. |
+| `STID`         | No                                | No                                | Registered model file only; no shipped preset yet.                                                                                     |
+| `SparseTSF`    | No                                | No                                | Registered model file only; no shipped preset yet.                                                                                     |
 
 ## Quick Start
 
@@ -150,10 +152,18 @@ The repository-level migration rules for Codex live in [AGENT.md](AGENT.md).
 
 ## Use Codex with EasyTSF
 
-Install the repository version of the migration skill into your local Codex skills directory:
+To use the repository version of the migration skill, place it into your local Codex skills directory manually. Codex auto-discovers skills from `${CODEX_HOME}/skills` when `CODEX_HOME` is set, otherwise from `~/.codex/skills`.
 
 ```bash
-python scripts/install_codex_skill.py
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+cp -R skills/migrate-model-to-easytsf "${CODEX_HOME:-$HOME/.codex}/skills/"
+```
+
+If you want the installed skill to stay synced with this repository while you edit it, use a symlink instead of copying:
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s "$(pwd)/skills/migrate-model-to-easytsf" "${CODEX_HOME:-$HOME/.codex}/skills/migrate-model-to-easytsf"
 ```
 
 Use the skill when you already have external model code and want to map it into EasyTSF:

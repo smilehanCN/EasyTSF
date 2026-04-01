@@ -70,10 +70,18 @@ python -m easytsf.workflow.report config/benchmarks/tqnet/core.py \
 
 ## 用 Codex 迁移外部模型
 
-先安装仓库自带的 skill：
+先把仓库里的 skill 手动放到本地 Codex skills 目录。Codex 默认会从 `${CODEX_HOME}/skills` 读取；如果没设 `CODEX_HOME`，通常就是 `~/.codex/skills`。
 
 ```bash
-python scripts/install_codex_skill.py
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+cp -R skills/migrate-model-to-easytsf "${CODEX_HOME:-$HOME/.codex}/skills/"
+```
+
+如果你希望 skill 跟仓库内改动保持同步，可以改成软链：
+
+```bash
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+ln -s "$(pwd)/skills/migrate-model-to-easytsf" "${CODEX_HOME:-$HOME/.codex}/skills/migrate-model-to-easytsf"
 ```
 
 这个 skill 的职责很窄：用户给出外部项目的模型代码、类定义、`forward` 逻辑或配置片段后，帮助判断能否迁入当前 EasyTSF `mtsf` 路径；如果能，就生成 EasyTSF 里的 model 和一个 experiment preset 草案所需的映射。
