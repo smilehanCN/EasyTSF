@@ -60,6 +60,12 @@ python -m pip install -e .
 python -m easytsf.workflow.experiment config/experiments/tqnet/etth1.yaml
 ```
 
+运行已接入的 MixLinear ETTh1 preset：
+
+```bash
+python -m easytsf.workflow.experiment config/experiments/mixlinear/etth1.yaml
+```
+
 运行 benchmark：
 
 ```bash
@@ -133,6 +139,8 @@ Use $run-workflow-with-easytsf to classify this prediction task, tell me whether
 - `easytsf/workflow/report.py`
 
 Skill 和文档会直接使用 task-aware prediction 语言来描述未来扩展面；如果请求的是 graph 或 grid prediction，预期输出应是显式扩展方案，而不是强行把任务压回 sequence 假设。
+
+当前维护的 sequence model surface 也包含一个可运行的 `MixLinear` preset：`config/experiments/mixlinear/etth1.yaml`。
 
 更严格的仓库级协作规则见 [AGENT.md](../AGENT.md)。
 

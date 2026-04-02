@@ -56,6 +56,12 @@ Run a single experiment from the CLI:
 python -m easytsf.workflow.experiment config/experiments/tqnet/etth1.yaml
 ```
 
+Run the maintained MixLinear ETTh1 preset:
+
+```bash
+python -m easytsf.workflow.experiment config/experiments/mixlinear/etth1.yaml
+```
+
 Run benchmark search:
 
 ```bash
@@ -129,6 +135,8 @@ Today, the current runnable code path still uses the sequence-oriented `mtsf` im
 - `easytsf/workflow/report.py`
 
 The Skills and docs deliberately speak in task-aware prediction language beyond that concrete implementation. If a request targets graph or grid prediction, the expected response is an explicit extension plan rather than a forced downgrade into sequence-only assumptions.
+
+The maintained sequence model surface now includes a runnable `MixLinear` preset at `config/experiments/mixlinear/etth1.yaml`.
 
 The repository-level collaboration rules for Codex live in [AGENT.md](AGENT.md).
 

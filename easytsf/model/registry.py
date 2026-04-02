@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from .itransformer import Model as iTransformerModel
+from .mixlinear import Model as MixLinearModel
 from .sparsetsf import Model as SparseTSFModel
 from .stid import Model as STIDModel
 from .stgcn import Model as STGCNModel
@@ -9,6 +10,7 @@ from .tqnet import Model as TQNetModel
 
 MODEL_REGISTRY = {
     "iTransformer": iTransformerModel,
+    "MixLinear": MixLinearModel,
     "TQNet": TQNetModel,
     "STGCN": STGCNModel,
     "STID": STIDModel,
