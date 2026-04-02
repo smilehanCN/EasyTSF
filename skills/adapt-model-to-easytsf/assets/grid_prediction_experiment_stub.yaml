@@ -1,19 +1,21 @@
+# Task-oriented planning stub for future grid prediction support.
+
 # model
-model: YourModelName
-# add model-specific keys here
+model: YourGridModel
+# add grid-specific keys here
 
 # data
-dataset: YourDataset
-hist_len: 96
-pred_len: 96
+dataset: YourGridDataset
+hist_len: 12
+pred_len: 12
 var_num: 1
-# optional:
-# time_feature_descriptions:
-#   - time of day
+# example task-specific keys:
+# grid_shape: [32, 32]
+# use_grid_mask: true
 
 # train
 seed: 42
-batch_size: 32
+batch_size: 8
 max_epochs: 30
 lr: 0.001
 lr_scheduler: OneCycleLR
@@ -26,12 +28,8 @@ val_metric: val/loss
 test_metric_space: original
 
 # runtime
-task: mtsf
+task: grid_prediction
 num_workers: 2
-pin_memory: null
-persistent_workers: null
-prefetch_factor: 2
-use_mmap: false
 data_root: dataset
 save_root: checkpoint
 devices: auto

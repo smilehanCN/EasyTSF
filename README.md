@@ -3,15 +3,15 @@
 ## Overview
 EasyTSF (**E**xperiment-friendly **A**ssistant for **Y**our **T**ime-**S**eries **F**orecasting): easy for humans, easy for AI.
 
-EasyTSF is a lightweight time-series forecasting algorithm library built on Lightning, with reproducible workflows and agent-friendly skills:
-- Workflow design for researchers who want a clear, low-overhead path from model code to reproducible experiments and benchmarks.
-- Skill design for AI agents that need explicit repository conventions to inspect, migrate, and use models correctly.
+EasyTSF is a lightweight prediction-task library built on Lightning, with reproducible workflows and agent-friendly skills:
+- Workflow design for researchers who want a clear path from model code to reproducible experiments and benchmarks.
+- Skill design for AI agents that need explicit contracts for data, tasks, model interfaces, and workflow surfaces.
 
 For a Chinese companion guide, see [docs/readme_cn.md](docs/readme_cn.md).
 
 ## Workflow Design
 
-Workflow design is the human-facing contract in EasyTSF. It is built around three workflows that cover the core loop of time-series forecasting research and application:
+Workflow design is the human-facing contract in EasyTSF. It is built around three public workflow surfaces:
 
 ### Experiment, Benchmark and Report
 
@@ -21,7 +21,24 @@ Workflow design is the human-facing contract in EasyTSF. It is built around thre
 - `benchmark`: run batches of experiments from a benchmark config. This is the main path for hyperparameter search and optimization.
 - `report`: summarize batch experiment outputs into comparable results for inspection and analysis.
 
-These workflows build on Lightning, keep the maintained path intentionally small, and separate static experiment presets from runtime overrides so researchers can move from single-run debugging to batch evaluation with less cognitive overhead.
+These workflows build on Lightning and separate static experiment presets from runtime overrides so researchers can move from single-run debugging to batch evaluation with less cognitive overhead.
+
+## Prediction Tasks
+
+EasyTSF documents prediction work in four layers:
+
+1. `data contract`
+2. `task contract`
+3. `model interface`
+4. `workflow surface`
+
+The taxonomy used by the Skills and docs is:
+
+- `sequence_prediction`
+- `graph_prediction`
+- `grid_prediction`
+
+The current runnable codebase still centers on one concrete sequence-oriented implementation through the existing `mtsf` path. Graph and grid prediction are treated as explicit extension targets rather than as hidden edge cases.
 
 ### Quick Start
 
@@ -53,50 +70,66 @@ python -m easytsf.workflow.report config/benchmarks/tqnet/core.py
 
 ## Skill Design
 
-Skill design is the AI-facing contract in EasyTSF. Skills turn repository conventions into reusable interfaces so AI agents can understand repository workflows and use the project more reliably. The current repository ships `migrate-model-to-easytsf`, and more Skills can be added over time.
+Skill design is the AI-facing contract in EasyTSF. Skills turn repository conventions into reusable interfaces so AI agents can classify prediction tasks, map them onto the current repository surface, and plan explicit extensions when the current code does not yet support them. The current repository ships three maintained Skills:
+
+- `prepare-data-for-easytsf`: inspect local data artifacts, classify the prediction task, and map the data contract onto the current repo or an extension plan
+- `adapt-model-to-easytsf`: inspect external model code, classify the target prediction task, and map the required model/task/repo changes
+- `run-workflow-with-easytsf`: plan or run task-aware experiment, benchmark, and report workflows from the current repo surface
 
 ### Install the Skill
 
-To use the repository version locally, place it into your Codex skills directory manually. Codex auto-discovers skills from `${CODEX_HOME}/skills` when `CODEX_HOME` is set, otherwise from `~/.codex/skills`.
+To use the repository versions locally, place them into your Codex skills directory manually. Codex auto-discovers skills from `${CODEX_HOME}/skills` when `CODEX_HOME` is set, otherwise from `~/.codex/skills`.
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/migrate-model-to-easytsf "${CODEX_HOME:-$HOME/.codex}/skills/"
+cp -R skills/* "${CODEX_HOME:-$HOME/.codex}/skills/"
 ```
 
-If you want the installed skill to stay synced with this repository while you edit it, use a symlink instead of copying:
+If you want the installed Skills to stay synced with this repository while you edit them, symlink each skill directory:
 
 ```bash
 mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-ln -s "$(pwd)/skills/migrate-model-to-easytsf" "${CODEX_HOME:-$HOME/.codex}/skills/migrate-model-to-easytsf"
+for skill_dir in skills/*; do
+  ln -s "$(pwd)/${skill_dir}" "${CODEX_HOME:-$HOME/.codex}/$(basename "${skill_dir}")"
+done
 ```
 
-### Migrate a Model into EasyTSF
+### Prepare Data for EasyTSF
 
-When bringing in a model from another project, keep the adaptation minimal and explicit:
-
-1. Add `easytsf/model/<model_id>.py` with a top-level `Model` class.
-2. Expose constructor arguments as explicit `Model.__init__` parameters. `MTSFTask` reads the signature and passes flat config keys by name.
-3. Adapt the forward interface to `forward(var_x, marker_x, marker_y)`.
-4. Return predictions that are label-compatible, typically `[B, pred_len, N]`.
-5. Register the model in `easytsf/model/registry.py`.
-6. Add at least one runnable preset under `config/experiments/<model_id>/`.
-7. Add benchmark wiring only if the migrated model is ready for search.
-
-If the external model depends on unsupported inputs such as graph side input, decoder caches, or a custom dataset contract that the current EasyTSF workflow does not provide, stop and redesign explicitly instead of silently expanding the repository scope.
-
-Use the Skill when you already have external model code and want to map it into EasyTSF:
+Use this Skill when the user already has local data artifacts and wants an AI agent to classify the task before touching configs or runs:
 
 ```text
-Use $migrate-model-to-easytsf to inspect this external forecasting model implementation and tell me whether it fits the current EasyTSF contract. If it fits, generate an EasyTSF-ready model plan plus one experiment preset draft. If it does not fit, stop with an incompatibility report.
+Use $prepare-data-for-easytsf to inspect this dataset directory, classify it as sequence, graph, or grid prediction data, and tell me whether the current EasyTSF repo can use it directly or needs a contract extension.
 ```
 
-Use a normal prompt instead when you only want to read or compare papers:
+### Adapt a Model to EasyTSF
+
+Use this Skill when the user already has external model code and wants an AI agent to map it onto the right prediction-task contract:
 
 ```text
-Summarize this forecasting paper, compare it with the models already registered in EasyTSF, and tell me whether it looks compatible with the current EasyTSF contract before we touch any code.
+Use $adapt-model-to-easytsf to inspect this model implementation, classify it as sequence, graph, or grid prediction, and tell me whether EasyTSF can adapt it directly or needs new task/data/workflow layers.
 ```
 
-The repository-level migration rules for Codex live in [AGENT.md](AGENT.md).
+### Run an EasyTSF Workflow
 
-The Skill source of truth lives in [`skills/migrate-model-to-easytsf/`](skills/migrate-model-to-easytsf/).
+Use this Skill when the user wants exact workflow guidance, from one experiment to a benchmark plus report:
+
+```text
+Use $run-workflow-with-easytsf to classify this prediction task, tell me whether the current EasyTSF repo can run it directly, and give me the exact experiment or benchmark workflow surface.
+```
+
+## Current Implementation Note
+
+Today, the current runnable code path still uses the sequence-oriented `mtsf` implementation:
+
+- `easytsf/data/mts_data_module.py`
+- `easytsf/task/mtsf.py`
+- `easytsf/workflow/experiment.py`
+- `easytsf/workflow/benchmark.py`
+- `easytsf/workflow/report.py`
+
+The Skills and docs deliberately speak in task-aware prediction language beyond that concrete implementation. If a request targets graph or grid prediction, the expected response is an explicit extension plan rather than a forced downgrade into sequence-only assumptions.
+
+The repository-level collaboration rules for Codex live in [AGENT.md](AGENT.md).
+
+Skill sources of truth live under [`skills/`](skills/).

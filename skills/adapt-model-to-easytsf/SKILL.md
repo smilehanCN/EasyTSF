@@ -1,0 +1,71 @@
+---
+name: adapt-model-to-easytsf
+description: Inspect external prediction model implementations and adapt them to EasyTSF task contracts. Use when the user provides model code, class definitions, forward logic, or config fragments and wants Codex to classify the target task as `sequence_prediction`, `graph_prediction`, or `grid_prediction`, determine the current repository fit, and produce either a direct adaptation plan or a repository extension plan.
+---
+
+# Adapt Model to EasyTSF
+
+## Overview
+
+Use this skill to adapt external prediction models to EasyTSF by task, not by forcing everything into one existing runtime path. Work from code first. Use papers only to recover intent when the implementation is incomplete or ambiguous.
+
+Before editing code, read:
+
+- `references/task-taxonomy.md`
+- `references/repo-contract.md`
+- `references/model-interface-mapping.md`
+- `references/adaptation-playbook.md`
+
+Use `assets/model_stub.py` and the task-specific experiment stubs when you need a stable starting point for generated output.
+
+## Workflow
+
+1. Inspect the source model code.
+   Read the external `__init__`, `forward`, helper modules, and config fragments. Extract:
+   - constructor parameters
+   - forward inputs
+   - tensor layout assumptions
+   - side inputs or runtime state
+   - output shape
+2. Classify the target prediction task.
+   Decide whether the model most naturally fits `sequence_prediction`, `graph_prediction`, or `grid_prediction`.
+3. Check the current repository fit.
+   If the model aligns with the current sequence path, produce a direct adaptation plan. If it depends on graph or grid inputs, produce a repository extension plan instead of treating those inputs as automatic blockers.
+4. Map the model onto the target EasyTSF contract.
+   - convert constructor arguments into explicit task-aware parameters
+   - map those parameters onto flat experiment config keys
+   - define the target model interface for the classified task
+   - spell out which datamodule outputs and task responsibilities are required
+   - choose the correct task-specific experiment stub
+5. Produce adaptation output.
+   Default deliverable:
+   - task classification
+   - current repository fit
+   - target `Model.__init__` parameter list
+   - target model interface and shape mapping
+   - required repository additions, if any
+   - one example experiment preset draft
+
+## Stop Conditions
+
+Stop and report blockers when any of the following is true:
+
+- the source model is not a prediction model
+- the source code is too incomplete to classify the task or infer the interface
+- the requested adaptation depends on hidden runtime behavior that is not visible in code or config
+- the user asks for invented inputs that do not exist in the source task
+
+Do not stop just because the model needs graph inputs, grid tensors, or richer side inputs. Those should trigger an extension plan.
+
+## Output Format
+
+When giving the adaptation result, organize it in this order:
+
+1. Task classification
+2. Current repository fit
+3. EasyTSF constructor mapping
+4. Target model interface and shape mapping
+5. Required repository additions
+6. Example experiment preset fields
+
+If the user asks for implementation, generate the model and preset from the mapped contract instead of copying the source project structure wholesale.

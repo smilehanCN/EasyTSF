@@ -1,19 +1,23 @@
 # EasyTSFNext 规范草案
 
-本草案只服务 EasyTSF 当前的维护范围：多变量时序预测 `mtsf`。目标是让仓库保持清晰、可复现、低心智负担，而不是继续扩展成通用时空建模框架。
+本草案服务 EasyTSF 的 prediction task 设计。目标是让仓库保持清晰、可复现、低心智负担，并把每类任务需要的数据、task、model、workflow 契约显式写出来。
 
 ## 1. 设计原则
 
-### 1.1 只维护少数公开抽象
+### 1.1 以任务契约为中心
 
-仓库只维护下列公开概念：
+仓库对外要明确四层公开契约：
 
-- `MTSFTask`
-- `experiment`
-- `benchmark`
-- task-aware `model.forward(...)`
+- `data contract`
+- `task contract`
+- `model interface`
+- `workflow surface`
 
-不新增 grid task、图结构 task、插件系统、AutoModel 或更大的注册分发树。
+当前文档使用的任务 taxonomy 是：
+
+- `sequence_prediction`
+- `graph_prediction`
+- `grid_prediction`
 
 ### 1.2 显式优先于魔法
 
@@ -34,32 +38,46 @@
 
 - `easytsf/model/`：模型本体与模型私有 helper
 - `easytsf/task/`：任务层与训练逻辑
-- `easytsf/data/`：sequence 数据读取、时间戳恢复、滑窗和 dataloader
+- `easytsf/data/`：数据读取、时间特征恢复和 dataloader
 - `easytsf/workflow/`：experiment / benchmark 编排
 - `config/experiments/`：单实验预设
 - `config/benchmarks/`：批量评测声明
 
 不要把 workflow 逻辑回灌到 model / task / data，也不要让 data 层承担“从数据反推配置真相”的职责。
 
-## 3. 模型接入规范
+## 3. 当前实现状态
 
-新增一个标准 `mtsf` 模型时，至少同时提交：
+当前可运行代码仍集中在一个 sequence-oriented 的 `mtsf` 路径上：
 
-1. `easytsf/model/<model_id>.py`
-2. 至少一个 `config/experiments/<model_id>/<dataset_id>.yaml`
-3. 如需搜索，提供 `config/search_spaces/<model_id>/<name>.py`
-4. 文档条目，说明实现来源与使用方式
+- `easytsf/data/mts_data_module.py`
+- `easytsf/task/mtsf.py`
+- `easytsf/workflow/experiment.py`
+- `easytsf/workflow/benchmark.py`
+- `easytsf/workflow/report.py`
 
-模型类契约：
+这条路径是当前 `sequence_prediction` 的一个具体实现，不应被表述成所有 prediction task 的唯一真理。
+
+## 4. 模型与任务接入规范
+
+新增一个 maintained prediction path 时，至少同时提交：
+
+1. 任务的数据契约
+2. 任务的 task contract
+3. 模型接口约束
+4. 至少一个 example experiment surface
+5. 如需搜索，再补 benchmark surface
+6. 文档条目，说明实现来源与使用方式
+
+模型类契约必须与任务契约一致，并保持显式：
 
 - 模型模块统一暴露顶层 `Model`
 - 构造参数来自扁平配置键
-- `forward(var_x, marker_x, marker_y)`
-- 返回张量与标签形状兼容，默认 `[B, pred_len, N]`
+- `forward(...)` 的参数必须显式表达该任务真正需要的输入
+- 返回张量必须与该任务的标签契约兼容
 
 如果 helper 只被当前模型使用，不要提取到共享层。
 
-## 4. 配置规范
+## 5. 配置规范
 
 experiment preset 使用 flat YAML，并通过注释块区分：
 
@@ -72,11 +90,11 @@ experiment preset 使用 flat YAML，并通过注释块区分：
 
 `experiment preset < runtime overrides`
 
-experiment preset 必须自包含完整 recipe，并显式声明 `task: mtsf`。如果要支持新的任务，必须先明确仓库目标变化，再讨论新增公开 task。
+experiment preset 应自包含完整 recipe，并显式声明任务归属。当前 runnable sequence 路径仍使用 `task: mtsf`；未来任务不应被强行塞进这个键值所代表的旧叙事。
 
-## 5. 数据规范
+## 6. 数据规范
 
-`mtsf` 数据集布局固定为：
+当前 sequence 路径的数据集布局为：
 
 - `train_data.npy`
 - `val_data.npy`
@@ -93,4 +111,4 @@ experiment preset 必须自包含完整 recipe，并显式声明 `task: mtsf`。
 - 三个 split 都必须提供时间戳文件
 - `meta.json` 需要提供频率和 `timestamps_description`
 
-不再支持 `data.npz`、grid mask、坐标 side input 或通用 TSF 数据抽象。
+对 graph 和 grid prediction，不要默认沿用 sequence 数据契约。它们需要额外的 topology、mask、坐标或 side input 时，必须作为任务契约的一部分显式写出，而不是放进隐含兼容逻辑。

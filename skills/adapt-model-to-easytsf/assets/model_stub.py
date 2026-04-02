@@ -7,11 +7,10 @@ class Model(nn.Module):
         self.hist_len = int(hist_len)
         self.pred_len = int(pred_len)
         self.var_num = int(var_num)
-        # Add explicit model-specific hyperparameters here.
+        # Add explicit task-aware hyperparameters here.
 
     def forward(self, var_x, marker_x, marker_y):
-        # var_x: [B, hist_len, N]
-        # marker_x: [B, hist_len, T] or None
-        # marker_y: [B, pred_len, T] or None
+        # Current concrete runtime path: sequence_prediction through mtsf.
+        # Update the signature when implementing a new task contract.
         del marker_x, marker_y
-        raise NotImplementedError("Implement the migrated model and return [B, pred_len, N].")
+        raise NotImplementedError("Implement the adapted model for the target prediction task.")

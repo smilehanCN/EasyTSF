@@ -1,46 +1,63 @@
 # AGENT.md
 
-This repository is optimized for rapid multivariate time-series forecasting research. Keep it small, explicit, and `mtsf`-only.
+This repository is optimized for explicit prediction-task contracts and low-overhead research workflows. Keep it small, explicit, and honest about which task layers already exist versus which ones still need extension.
 
 ## Hard Boundaries
 
-- Maintain only `mtsf`.
-- Do not reintroduce grid tasks, graph side inputs, `npz` dataset compatibility, or generic TSF abstractions.
+- Do not pretend one existing runtime path is the universal contract for every prediction task.
 - Do not expand the repository contract just to mimic an external codebase.
 - Prefer explicit config, direct code paths, and flat constructor arguments over framework-style indirection.
 - Delete dead compatibility code instead of preserving legacy abstractions.
+- When adding a new prediction task, define its data contract, task contract, model interface, and workflow surface explicitly.
 
-If an external model needs inputs or runtime state that the current `mtsf` path does not provide, stop with an incompatibility report instead of hard-migrating it.
+If an external model or dataset needs behavior beyond the current sequence-oriented runtime, surface the missing repository layers explicitly instead of forcing the task into sequence-only assumptions.
 
 ## Repo Contract
+
+EasyTSF documents prediction work in four layers:
+
+1. `data contract`
+2. `task contract`
+3. `model interface`
+4. `workflow surface`
+
+The documented taxonomy is:
+
+- `sequence_prediction`
+- `graph_prediction`
+- `grid_prediction`
 
 ### Config
 
 - `config/experiments/<model_id>/*.yaml`: runnable experiment presets
 - `config/benchmarks/<model_id>/*.py`: benchmark configs
 - Config merge priority is fixed: `experiment preset < runtime overrides`
-- Every experiment preset must be self-contained and explicitly set `task: mtsf`
-- Model constructor arguments are read from flat config keys by name via `MTSFTask._build_model()`
+- Current runnable sequence presets still use `task: mtsf`
+- Current model constructor arguments are read from flat config keys by name via `MTSFTask._build_model()`
 
 ### Data
 
-- `easytsf/data/mts_data_module.py` contains `MTSDataModule`
-- Dataset layout is directory-based:
+- Every prediction task must make its data artifacts explicit.
+- The current concrete implementation lives in `easytsf/data/mts_data_module.py`.
+- The current runnable sequence layout is directory-based with:
   - `train_data.npy`
   - `val_data.npy`
   - `test_data.npy`
   - `train_timestamps.npy`
   - `val_timestamps.npy`
   - `test_timestamps.npy`
-  - `meta.json` with `frequency (minutes)` and `timestamps_description`
-- The maintained path is sequence-only; it does not inject graph side inputs or other extra tensors
+  - `meta.json`
+- Graph and grid tasks must define their additional topology, mask, coordinate, or side-input artifacts explicitly rather than smuggling them through undocumented conventions.
 
 ### Task
 
-- `easytsf/task/mtsf.py` contains `MTSFTask`
-- The task preprocesses batches, scales variables, builds labels, and instantiates the model from explicit constructor arguments
-- Model forward must use `forward(var_x, marker_x, marker_y)`
-- Prediction must stay label-compatible, typically `[B, pred_len, N]`
+- Every prediction task should define:
+  - task-owned preprocessing
+  - label construction
+  - model instantiation rules
+  - metric surface
+- The current concrete implementation lives in `easytsf/task/mtsf.py`.
+- The current sequence model interface is `forward(var_x, marker_x, marker_y)`.
 
 ### Workflow
 
@@ -48,35 +65,37 @@ If an external model needs inputs or runtime state that the current `mtsf` path 
 - `easytsf/workflow/benchmark.py` contains benchmark orchestration
 - `easytsf/workflow/report.py` summarizes benchmark outputs
 - Keep workflow logic out of `data`, `task`, and `model`
+- When planning a new prediction task, specify how experiment, benchmark, and report should observe it.
 
-## Migration Playbook
+## Adaptation Playbook
 
-When the user wants to migrate a model from another repository:
+When the user wants to adapt a model from another repository:
 
 1. Read the external model code first: constructor, `forward`, helper modules, and config fragments.
-2. Read the EasyTSF contract before editing: current task, data path, and config flow.
-3. Decide compatibility early. If the source model depends on graph side input, decoder caches, custom datamodule state, or other unsupported inputs, stop and write an incompatibility report.
-4. If compatible, map external constructor arguments onto explicit `Model.__init__` parameters that can be passed from flat experiment config keys.
-5. Adapt the forward path to `forward(var_x, marker_x, marker_y)`. Ignore unused markers explicitly with `del`.
-6. Normalize tensor layout inside the model when needed, but keep the public output shape label-compatible, typically `[B, pred_len, N]`.
-7. Wire the model into `easytsf/model/registry.py`, add one runnable experiment preset, and sync public docs if the maintained surface changed.
+2. Classify the target task as `sequence_prediction`, `graph_prediction`, or `grid_prediction`.
+3. Read the EasyTSF contract before editing: data contract, task contract, model interface, and workflow surface.
+4. If the source model aligns with the current sequence path, map external constructor arguments onto explicit `Model.__init__` parameters that can be passed from flat experiment config keys.
+5. If the source model requires graph or grid inputs, write the missing repository layers explicitly instead of collapsing the task into the current sequence path.
+6. Normalize tensor layout inside the model when needed, but keep the target task interface explicit.
+7. Wire the model into the appropriate task surface, add one example preset, and sync public docs if the maintained surface changed.
 
-## Add a Maintained Model
+## Add a Maintained Prediction Task or Model
 
-Definition of done for a maintained model path:
+Definition of done for a maintained prediction path:
 
-1. Add `easytsf/model/<model_id>.py` with a top-level `Model` class.
-2. Register it in `easytsf/model/registry.py`.
-3. Add at least one runnable preset under `config/experiments/<model_id>/`.
-4. Add benchmark wiring only if the model is ready for search on the maintained path.
-5. Update `README.md` and `docs/readme_cn.md` when public onboarding or support status changed.
-6. Run `python -m compileall easytsf`.
+1. Define the data contract.
+2. Define the task contract.
+3. Define the model interface.
+4. Define the workflow surface.
+5. Add runnable code only for the layers the repository is actually implementing now.
+6. Update `README.md` and `docs/readme_cn.md` when public onboarding or support status changed.
+7. Run `python -m compileall easytsf` when Python code changed.
 
 Keep model-private helpers inside the model file unless there is real cross-model reuse.
 
 ## Change Guidelines
 
-- Change the minimum surface necessary for the current `mtsf` path.
+- Change the minimum surface necessary for the target prediction contract.
 - If a code path exists only for historical compatibility and the current path does not use it, delete it.
 - Do not add defensive pre-validation for cases that Python, NumPy, or PyTorch already reject naturally.
 - Keep explicit checks for structure or semantic mismatches that would otherwise fail silently.
