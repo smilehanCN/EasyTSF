@@ -1,0 +1,39 @@
+# model
+model: TimeBase
+period_len: 24
+basis_num: 6
+use_period_norm: true
+use_orthogonal: true
+individual: false
+aux_loss_weight: 0.16
+
+# data
+dataset: ETTh1
+hist_len: 720
+pred_len: 96
+var_num: 7
+
+# train
+seed: 42
+batch_size: 64
+max_epochs: 30
+lr: 0.1
+lr_scheduler: OneCycleLR
+lrs_pct_start: 0.3
+es_patience: 5
+optimizer: Adam
+gradient_clip_val: 0.0
+gradient_clip_algorithm: norm
+val_metric: val/loss
+test_metric_space: scaled
+
+# runtime
+task: mtsf
+num_workers: 2
+pin_memory: null
+persistent_workers: null
+prefetch_factor: 2
+use_mmap: false
+data_root: dataset
+save_root: checkpoint
+devices: auto

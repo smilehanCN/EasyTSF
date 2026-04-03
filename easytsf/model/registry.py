@@ -5,6 +5,7 @@ from .mixlinear import Model as MixLinearModel
 from .sparsetsf import Model as SparseTSFModel
 from .stid import Model as STIDModel
 from .stgcn import Model as STGCNModel
+from .timebase import Model as TimeBaseModel
 from .tqnet import Model as TQNetModel
 
 
@@ -15,6 +16,7 @@ MODEL_REGISTRY = {
     "STGCN": STGCNModel,
     "STID": STIDModel,
     "SparseTSF": SparseTSFModel,
+    "TimeBase": TimeBaseModel,
 }
 
 
