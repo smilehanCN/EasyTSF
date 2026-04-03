@@ -69,13 +69,13 @@ python -m easytsf.workflow.experiment config/experiments/mixlinear/etth1.yaml
 运行 benchmark：
 
 ```bash
-python -m easytsf.workflow.benchmark config/benchmarks/tqnet/core.py
+python -m easytsf.workflow.benchmark config/benchmarks/mixlinear/etth1.py
 ```
 
 生成 benchmark 结果汇总：
 
 ```bash
-python -m easytsf.workflow.report config/benchmarks/tqnet/core.py
+python -m easytsf.workflow.report config/benchmarks/mixlinear/etth1.py
 ```
 
 ## Skill Design
@@ -140,7 +140,7 @@ Use $run-workflow-with-easytsf to classify this prediction task, tell me whether
 
 Skill 和文档会直接使用 task-aware prediction 语言来描述未来扩展面；如果请求的是 graph 或 grid prediction，预期输出应是显式扩展方案，而不是强行把任务压回 sequence 假设。
 
-当前维护的 sequence model surface 也包含一个可运行的 `MixLinear` preset：`config/experiments/mixlinear/etth1.yaml`。
+当前维护的 sequence model surface 也包含一个可运行的 `MixLinear` preset：`config/experiments/mixlinear/etth1.yaml`，以及一个 benchmark 示例：`config/benchmarks/mixlinear/etth1.py`。
 
 更严格的仓库级协作规则见 [AGENT.md](../AGENT.md)。
 
