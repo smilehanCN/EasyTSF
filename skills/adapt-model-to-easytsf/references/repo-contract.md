@@ -35,6 +35,14 @@ Use that path as the closest concrete implementation for `sequence_prediction` t
 - benchmark configs live under `config/benchmarks/<model_id>/`
 - runtime merge order is fixed: `experiment preset < runtime overrides`
 - the current `MTSFTask._build_model()` path reads flat constructor keys by parameter name
+- current benchmark files are Python modules that export `benchmark_config`
+- current benchmark shape uses:
+  - `name`
+  - `search_save_dir`
+  - `search_config`
+  - `experiment`
+  - `param_space`
+- `param_space` applies flat overrides on top of the base experiment preset referenced by `experiment`
 
 When adapting new prediction tasks, keep constructor requirements explicit and avoid hiding them inside opaque nested objects or `**kwargs`.
 

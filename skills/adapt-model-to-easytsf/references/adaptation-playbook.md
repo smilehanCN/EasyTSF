@@ -37,12 +37,18 @@ Produce:
 - required config keys
 - repository additions in `data`, `task`, and workflow layers when the task is not yet implemented
 
-## Step 5: Draft the task-aware experiment surface
+## Step 5: Draft the task-aware experiment and benchmark surface
 
-Choose the correct stub:
+Choose the correct stubs:
 
 - `assets/sequence_prediction_experiment_stub.yaml`
 - `assets/graph_prediction_experiment_stub.yaml`
 - `assets/grid_prediction_experiment_stub.yaml`
+- `assets/benchmark_stub.py`
 
-Use the stub as a contract sketch, not as proof that the current runtime already supports the task.
+Produce:
+
+- one experiment preset draft
+- one benchmark config draft with `experiment` and `param_space`
+
+Use the experiment stubs and the shared benchmark stub as contract sketches, not as proof that the current runtime already supports the task.

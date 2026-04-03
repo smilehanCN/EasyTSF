@@ -16,7 +16,7 @@ Before editing code, read:
 - `references/model-interface-mapping.md`
 - `references/adaptation-playbook.md`
 
-Use `assets/model_stub.py` and the task-specific experiment stubs when you need a stable starting point for generated output.
+Use `assets/model_stub.py`, the task-specific experiment stubs, and `assets/benchmark_stub.py` when you need a stable starting point for generated output.
 
 ## Workflow
 
@@ -36,7 +36,9 @@ Use `assets/model_stub.py` and the task-specific experiment stubs when you need 
    - map those parameters onto flat experiment config keys
    - define the target model interface for the classified task
    - spell out which datamodule outputs and task responsibilities are required
-   - choose the correct task-specific experiment stub
+   - choose the correct task-specific experiment stub and the shared benchmark stub
+   - identify benchmark `param_space` candidates from source code, scripts, or close EasyTSF baselines
+   - define the target benchmark file placement under `config/benchmarks/<model_id>/`
 5. Produce adaptation output.
    Default deliverable:
    - task classification
@@ -45,6 +47,7 @@ Use `assets/model_stub.py` and the task-specific experiment stubs when you need 
    - target model interface and shape mapping
    - required repository additions, if any
    - one example experiment preset draft
+   - one example benchmark config draft
 
 ## Stop Conditions
 
@@ -67,5 +70,16 @@ When giving the adaptation result, organize it in this order:
 4. Target model interface and shape mapping
 5. Required repository additions
 6. Example experiment preset fields
+7. Example benchmark config draft
 
-If the user asks for implementation, generate the model and preset from the mapped contract instead of copying the source project structure wholesale.
+When drafting benchmark output, follow these rules:
+
+- always produce a complete `benchmark_config` draft, even when the task still needs repository extensions
+- point `experiment` at the matching experiment preset draft path, for example `config/experiments/<model_id>/<dataset>.yaml`
+- place `search_save_dir` under `save/benchmarks/<benchmark_name>`
+- prefer benchmark search keys and ranges that are visible in source code, original scripts, or close EasyTSF baselines
+- if no trustworthy search range exists, keep the search narrow or single-valued and mark uncertain ranges with a short comment such as `replace with validated search range`
+- keep `search_config` aligned with the current EasyTSF benchmark surface instead of inventing a model-specific runner contract
+- for graph or grid tasks that are not yet runnable, clearly mark the benchmark draft as a planning draft rather than a runnable config
+
+If the user asks for implementation, generate the model, experiment preset, and benchmark sample config from the mapped contract instead of copying the source project structure wholesale.
