@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from easytsf.data import MTSDataModule
+from easytsf.data import MTSDataModule, WeatherDataModule
 
 from .mtsf import MTSFTask
+from .weatherbench import WeatherBenchTask
 
 
 TASK_REGISTRY = {
     "mtsf": (MTSDataModule, MTSFTask),
+    "weatherbench": (WeatherDataModule, WeatherBenchTask),
 }
 
 

@@ -1,0 +1,34 @@
+# model
+model: WeatherBenchPersistence
+
+# data
+dataset: weatherbench_demo
+hist_len: 4
+pred_len: 2
+
+# train
+seed: 42
+batch_size: 4
+max_epochs: 5
+lr: 0.001
+lr_scheduler: StepLR
+lr_step_size: 1
+lr_gamma: 1.0
+es_patience: 3
+optimizer: Adam
+gradient_clip_val: 0.0
+gradient_clip_algorithm: norm
+val_metric: val/loss
+test_metric_space: original
+
+# runtime
+task: weatherbench
+num_workers: 0
+pin_memory: null
+persistent_workers: null
+prefetch_factor: 2
+use_mmap: true
+shard_cache_size: 2
+data_root: dataset
+save_root: checkpoint
+devices: auto

@@ -7,6 +7,7 @@ from .stid import Model as STIDModel
 from .stgcn import Model as STGCNModel
 from .timebase import Model as TimeBaseModel
 from .tqnet import Model as TQNetModel
+from .weatherbench_persistence import Model as WeatherBenchPersistenceModel
 
 
 MODEL_REGISTRY = {
@@ -17,6 +18,7 @@ MODEL_REGISTRY = {
     "STID": STIDModel,
     "SparseTSF": SparseTSFModel,
     "TimeBase": TimeBaseModel,
+    "WeatherBenchPersistence": WeatherBenchPersistenceModel,
 }
 
 

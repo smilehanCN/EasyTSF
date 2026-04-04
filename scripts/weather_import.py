@@ -139,6 +139,18 @@ def _normalize_split_spec(split_spec: dict[str, Any]) -> dict[str, tuple[str | N
     return normalized
 
 
+def _normalize_regrid_shape(raw_shape: list[int] | tuple[int, int] | None) -> tuple[int, int] | None:
+    if raw_shape is None:
+        return None
+    if not isinstance(raw_shape, (list, tuple)) or len(raw_shape) != 2:
+        raise ValueError("regrid_shape must be a 2-item list like [lat_size, lon_size]")
+    lat_size = int(raw_shape[0])
+    lon_size = int(raw_shape[1])
+    if lat_size <= 0 or lon_size <= 0:
+        raise ValueError("regrid_shape values must be > 0")
+    return lat_size, lon_size
+
+
 def _open_weatherbench_variable_dir(source_dir: Path, variable_name: str) -> "xr.Dataset":
     _require_xarray()
     variable_dir = source_dir / variable_name
@@ -189,13 +201,51 @@ def open_weather_source_dataset(source_format: str, source_path: str | Path, var
     return xr.open_dataset(source_path)
 
 
-def _standardize_dataset(ds: "xr.Dataset") -> "xr.Dataset":
+def open_weather_static_dataset(
+    source_format: str,
+    source_path: str | Path,
+    variables: list[str],
+) -> "xr.Dataset":
+    _require_xarray()
+    if len(variables) == 0:
+        raise ValueError("variables must not be empty when loading static fields")
+
+    source_format = str(source_format)
+    source_path = Path(source_path).expanduser()
+    unique_variables = list(dict.fromkeys(str(item) for item in variables))
+
+    if source_format == "weatherbench_netcdf":
+        candidate_paths = []
+        constants_path = source_path / "constants.nc"
+        if constants_path.is_file():
+            candidate_paths.append(constants_path)
+        candidate_paths.extend(
+            path
+            for path in sorted(source_path.glob("*.nc"))
+            if path.name != "constants.nc"
+        )
+        if len(candidate_paths) == 0:
+            raise ValueError("static_variables were requested, but no static NetCDF files were found under '{}'".format(source_path))
+        datasets = [xr.open_dataset(path) for path in candidate_paths]
+        ds = xr.merge(datasets, compat="override")
+    elif source_format == "xarray_zarr":
+        ds = xr.open_zarr(source_path)
+    else:
+        ds = xr.open_dataset(source_path)
+
+    missing_variables = sorted(variable_name for variable_name in unique_variables if variable_name not in ds.data_vars)
+    if missing_variables:
+        raise ValueError("static dataset is missing variables {}".format(missing_variables))
+    return ds[unique_variables]
+
+
+def _standardize_grid_dataset(ds: "xr.Dataset", *, require_valid_time: bool) -> "xr.Dataset":
     rename_map = {}
     if "lat" in ds.coords:
         rename_map["lat"] = "latitude"
     if "lon" in ds.coords:
         rename_map["lon"] = "longitude"
-    if "time" in ds.coords and "valid_time" not in ds.coords:
+    if require_valid_time and "time" in ds.coords and "valid_time" not in ds.coords:
         if "prediction_timedelta" in ds.coords:
             raise ValueError(
                 "forecast-style datasets with prediction_timedelta are not supported as training sources"
@@ -204,15 +254,57 @@ def _standardize_dataset(ds: "xr.Dataset") -> "xr.Dataset":
     if rename_map:
         ds = ds.rename(rename_map)
 
-    required_coords = {"valid_time", "latitude", "longitude"}
+    required_coords = {"latitude", "longitude"}
+    if require_valid_time:
+        required_coords.add("valid_time")
     missing = sorted(coord_name for coord_name in required_coords if coord_name not in ds.coords)
     if missing:
         raise ValueError("dataset is missing required coordinates {}".format(missing))
 
-    ds = ds.sortby("valid_time")
+    if require_valid_time:
+        ds = ds.sortby("valid_time")
     ds = ds.sortby("latitude")
     ds = ds.sortby("longitude")
     return ds
+
+
+def _standardize_dataset(ds: "xr.Dataset") -> "xr.Dataset":
+    ds = _standardize_grid_dataset(ds, require_valid_time=True)
+    return ds.assign_coords(valid_time=np.asarray(ds["valid_time"].values).astype("datetime64[ns]"))
+
+
+def _standardize_static_dataset(ds: "xr.Dataset") -> "xr.Dataset":
+    return _standardize_grid_dataset(ds, require_valid_time=False)
+
+
+def _maybe_regrid_dataset(
+    ds: "xr.Dataset",
+    regrid_shape: tuple[int, int] | None,
+) -> "xr.Dataset":
+    if regrid_shape is None:
+        return ds
+    lat_size, lon_size = regrid_shape
+    target_latitude = np.linspace(
+        float(ds["latitude"].values[0]),
+        float(ds["latitude"].values[-1]),
+        lat_size,
+        dtype=np.float32,
+    )
+    target_longitude = np.linspace(
+        float(ds["longitude"].values[0]),
+        float(ds["longitude"].values[-1]),
+        lon_size,
+        dtype=np.float32,
+    )
+    source_latitude = np.asarray(ds["latitude"].values, dtype=np.float32)
+    source_longitude = np.asarray(ds["longitude"].values, dtype=np.float32)
+    latitude_indices = np.abs(source_latitude[:, None] - target_latitude[None, :]).argmin(axis=0)
+    longitude_indices = np.abs(source_longitude[:, None] - target_longitude[None, :]).argmin(axis=0)
+    regridded = ds.isel(
+        latitude=xr.DataArray(latitude_indices, dims="latitude"),
+        longitude=xr.DataArray(longitude_indices, dims="longitude"),
+    )
+    return regridded.assign_coords(latitude=target_latitude, longitude=target_longitude)
 
 
 def _build_channel_specs(
@@ -293,8 +385,64 @@ def _build_channel_specs(
     return channels, target_channel_names
 
 
+def _build_static_artifacts(
+    static_ds: "xr.Dataset | None",
+    static_variables: list[str],
+    grid_shape: tuple[int, int],
+) -> tuple[list[dict[str, Any]], np.ndarray]:
+    if len(static_variables) == 0:
+        return [], np.zeros((0, grid_shape[0], grid_shape[1]), dtype=np.float32)
+    if static_ds is None:
+        raise ValueError("static_variables were configured, but no static dataset was loaded")
+
+    static_channels = []
+    static_arrays = []
+    for channel_index, variable_name in enumerate(static_variables):
+        if variable_name not in static_ds.data_vars:
+            raise ValueError("static dataset is missing variable '{}'".format(variable_name))
+        data_array = static_ds[variable_name]
+        time_dims = [dim_name for dim_name in data_array.dims if dim_name in {"valid_time", "time"}]
+        if time_dims:
+            raise ValueError("static variable '{}' must not have time dimensions".format(variable_name))
+        extra_dims = [dim_name for dim_name in data_array.dims if dim_name not in {"latitude", "longitude"}]
+        if extra_dims:
+            raise ValueError(
+                "static variable '{}' has unsupported dimensions {}; only latitude/longitude are allowed".format(
+                    variable_name,
+                    extra_dims,
+                )
+            )
+        static_arrays.append(
+            np.asarray(
+                data_array.transpose("latitude", "longitude").to_numpy(),
+                dtype=np.float32,
+            )[None, :, :]
+        )
+        static_channels.append(
+            {
+                "name": str(variable_name),
+                "source_variable": str(variable_name),
+                "index": channel_index,
+            }
+        )
+
+    static_array = np.concatenate(static_arrays, axis=0)
+    if tuple(static_array.shape[1:]) != tuple(grid_shape):
+        raise ValueError(
+            "static grid shape {} does not match dynamic grid shape {}".format(
+                tuple(static_array.shape[1:]),
+                tuple(grid_shape),
+            )
+        )
+    return static_channels, static_array
+
+
 def _select_split_dataset(ds: "xr.Dataset", split_range: tuple[str | None, str | None]) -> "xr.Dataset":
     start, end = split_range
+    if start is not None:
+        start = np.datetime64(start, "ns")
+    if end is not None:
+        end = np.datetime64(end, "ns")
     return ds.sel(valid_time=slice(start, end))
 
 
@@ -336,6 +484,22 @@ def _stack_shard(
     return np.concatenate(shard_channels, axis=1)
 
 
+def _compute_split_climatology(
+    split_ds: "xr.Dataset",
+    channels: list[ChannelSpec],
+) -> dict[str, np.ndarray]:
+    climatology = {}
+    for channel in channels:
+        data_array = split_ds[channel.base_variable]
+        if channel.level is not None:
+            data_array = data_array.sel(level=channel.level)
+        climatology[channel.name] = np.asarray(
+            data_array.transpose("valid_time", "latitude", "longitude").mean(dim="valid_time").to_numpy(),
+            dtype=np.float32,
+        )[None, :, :]
+    return climatology
+
+
 def _infer_source_resolution(ds: "xr.Dataset") -> str:
     return "{}x{}".format(ds.sizes["latitude"], ds.sizes["longitude"])
 
@@ -357,12 +521,15 @@ def write_canonical_weather_dataset(
     input_variables: list[str],
     target_variables: list[str],
     *,
+    static_ds: "xr.Dataset | None" = None,
+    static_variables: list[str] | None = None,
     levels: dict[str, list[Any]] | None = None,
     resample_freq: str | None = None,
     split_spec: dict[str, Any],
     shard_len: int,
     source_format: str,
     source_resolution: str | None = None,
+    regrid_shape: list[int] | tuple[int, int] | None = None,
     artifacts_version: str = DEFAULT_WEATHER_ARTIFACTS_VERSION,
     storage_format: str = DEFAULT_WEATHER_STORAGE_FORMAT,
 ) -> dict[str, Any]:
@@ -371,10 +538,24 @@ def write_canonical_weather_dataset(
 
     levels = _normalize_levels(levels)
     split_spec = _normalize_split_spec(split_spec)
+    regrid_shape = _normalize_regrid_shape(regrid_shape)
+    if static_variables is None:
+        static_variables = []
+    elif len(static_variables) > 0:
+        static_variables = _normalize_variable_list(static_variables, "static_variables")
+    else:
+        static_variables = []
+
     ds = _standardize_dataset(ds)
+    inferred_source_resolution = str(source_resolution or _infer_source_resolution(ds))
     if resample_freq is not None:
         ds = ds.resample(valid_time=str(resample_freq)).first()
         ds = ds.dropna(dim="valid_time", how="all")
+    ds = _maybe_regrid_dataset(ds, regrid_shape)
+
+    if static_ds is not None:
+        static_ds = _standardize_static_dataset(static_ds)
+        static_ds = _maybe_regrid_dataset(static_ds, regrid_shape)
 
     channels, target_channel_names = _build_channel_specs(
         ds=ds,
@@ -382,12 +563,17 @@ def write_canonical_weather_dataset(
         target_variables=target_variables,
         levels=levels,
     )
+    target_channels = [channel for channel in channels if channel.name in set(target_channel_names)]
+    grid_shape = (int(ds.sizes["latitude"]), int(ds.sizes["longitude"]))
+    static_channels, static_array = _build_static_artifacts(static_ds, static_variables, grid_shape)
 
     dataset_dir = Path(out_dir).expanduser().resolve()
     dataset_dir.mkdir(parents=True, exist_ok=True)
-    np.save(dataset_dir / "latitude.npy", np.asarray(ds["latitude"].values))
-    np.save(dataset_dir / "longitude.npy", np.asarray(ds["longitude"].values))
+    np.save(dataset_dir / "latitude.npy", np.asarray(ds["latitude"].values, dtype=np.float32))
+    np.save(dataset_dir / "longitude.npy", np.asarray(ds["longitude"].values, dtype=np.float32))
+    np.save(dataset_dir / "static.npy", static_array.astype(np.float32, copy=False))
     dump_json(dataset_dir / "channels.json", [channel.to_dict() for channel in channels])
+    dump_json(dataset_dir / "static_channels.json", static_channels)
 
     channel_sums = np.zeros(len(channels), dtype=np.float64)
     channel_sum_squares = np.zeros(len(channels), dtype=np.float64)
@@ -407,6 +593,7 @@ def write_canonical_weather_dataset(
         split_timestamps_ns[split_name] = timestamps.view(np.int64)
 
         np.save(split_dir / "timestamps.npy", timestamps)
+        np.savez(split_dir / "climatology.npz", **_compute_split_climatology(split_ds, target_channels))
         split_lengths[split_name] = int(timestamps.size)
 
         files = []
@@ -452,8 +639,8 @@ def write_canonical_weather_dataset(
     channel_stds = np.sqrt(channel_variances)
     np.savez(
         dataset_dir / "stats.npz",
-        mean=channel_means.astype(np.float32),
-        std=channel_stds.astype(np.float32),
+        mean=channel_means.astype(np.float32)[None, :, None, None],
+        std=channel_stds.astype(np.float32)[None, :, None, None],
     )
 
     meta = {
@@ -462,16 +649,18 @@ def write_canonical_weather_dataset(
         "shape": [
             int(sum(split_lengths.values())),
             int(len(channels)),
-            int(ds.sizes["latitude"]),
-            int(ds.sizes["longitude"]),
+            int(grid_shape[0]),
+            int(grid_shape[1]),
         ],
+        "grid_shape": [int(grid_shape[0]), int(grid_shape[1])],
         "frequency_minutes": _infer_frequency_minutes(ds["valid_time"].values),
         "input_channels": [channel.name for channel in channels],
         "target_channels": target_channel_names,
+        "static_channels": [channel["name"] for channel in static_channels],
         "split_lengths": split_lengths,
         "shard_len": int(shard_len),
         "source_format": str(source_format),
-        "source_resolution": str(source_resolution or _infer_source_resolution(ds)),
+        "source_resolution": inferred_source_resolution,
         "artifacts_version": str(artifacts_version),
     }
     dump_json(dataset_dir / "meta.json", meta)
@@ -485,16 +674,24 @@ def import_weather_dataset(
     out_dir: str | Path,
     input_variables: list[str],
     target_variables: list[str] | None,
+    static_variables: list[str] | None,
     levels: dict[str, list[Any]] | None,
     resample_freq: str | None,
     split_spec: dict[str, Any],
     shard_len: int,
     source_resolution: str | None = None,
+    regrid_shape: list[int] | tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     input_variables = _normalize_variable_list(input_variables, "input_variables")
     if target_variables is None:
         target_variables = list(input_variables)
     target_variables = _normalize_variable_list(target_variables, "target_variables")
+    if static_variables is None:
+        static_variables = []
+    elif len(static_variables) > 0:
+        static_variables = _normalize_variable_list(static_variables, "static_variables")
+    else:
+        static_variables = []
     levels = _normalize_levels(levels)
 
     source_dataset = open_weather_source_dataset(
@@ -502,17 +699,27 @@ def import_weather_dataset(
         source_path=source,
         variables=input_variables,
     )
+    static_dataset = None
+    if len(static_variables) > 0:
+        static_dataset = open_weather_static_dataset(
+            source_format=source_format,
+            source_path=source,
+            variables=static_variables,
+        )
     return write_canonical_weather_dataset(
         ds=source_dataset,
+        static_ds=static_dataset,
         out_dir=out_dir,
         input_variables=input_variables,
         target_variables=target_variables,
+        static_variables=static_variables,
         levels=levels,
         resample_freq=resample_freq,
         split_spec=split_spec,
         shard_len=shard_len,
         source_format=source_format,
         source_resolution=source_resolution,
+        regrid_shape=regrid_shape,
     )
 
 
@@ -537,6 +744,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Optional YAML/JSON list of target variable names. Defaults to input_variables.",
     )
     parser.add_argument(
+        "--static-variables",
+        default="[]",
+        help="Optional YAML/JSON list of static variable names to load from constants.nc or the source dataset.",
+    )
+    parser.add_argument(
         "--levels",
         default="{}",
         help="Optional YAML/JSON mapping from variable name to a list of levels.",
@@ -557,6 +769,11 @@ def build_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional source resolution label to record in meta.json.",
     )
+    parser.add_argument(
+        "--regrid-shape",
+        default=None,
+        help="Optional YAML/JSON [latitude_size, longitude_size] grid to interpolate onto.",
+    )
     return parser
 
 
@@ -569,11 +786,13 @@ def main() -> None:
         out_dir=args.out_dir,
         input_variables=_parse_structured_arg(args.input_variables, default=[]),
         target_variables=_parse_structured_arg(args.target_variables, default=None),
+        static_variables=_parse_structured_arg(args.static_variables, default=[]),
         levels=_parse_structured_arg(args.levels, default={}),
         resample_freq=args.resample_freq,
         split_spec=_parse_structured_arg(args.split_spec, default={}),
         shard_len=args.shard_len,
         source_resolution=args.source_resolution,
+        regrid_shape=_parse_structured_arg(args.regrid_shape, default=None),
     )
 
 
