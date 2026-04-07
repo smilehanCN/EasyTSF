@@ -1,0 +1,42 @@
+# model
+model: UNet3D
+base_channels: 16
+patch_size: [4, 4, 2]
+downsample_scale: [2, 2, 2]
+kernel_size: [3, 3, 3]
+expansion: 2
+use_coords: true
+
+# data
+dataset: windfield4cast_demo
+hist_len: 5
+pred_len: 1
+train_patch_shape: [160, 160, 80]
+eval_tile_shape: [160, 160, 80]
+eval_tile_overlap: [32, 32, 16]
+
+# train
+seed: 42
+batch_size: 1
+max_epochs: 5
+lr: 0.0001
+lr_scheduler: StepLR
+lr_step_size: 1
+lr_gamma: 1.0
+es_patience: 3
+optimizer: Adam
+gradient_clip_val: 0.0
+gradient_clip_algorithm: norm
+val_metric: val/loss
+test_metric_space: original
+
+# runtime
+task: grid3d_forecasting
+num_workers: 0
+pin_memory: null
+persistent_workers: null
+prefetch_factor: 2
+use_mmap: true
+data_root: dataset
+save_root: checkpoint
+devices: auto

@@ -38,7 +38,7 @@ The taxonomy used by the Skills and docs is:
 - `graph_prediction`
 - `grid_prediction`
 
-The current runnable codebase still centers on one concrete sequence-oriented implementation through the existing `mtsf` path. Graph and grid prediction are treated as explicit extension targets rather than as hidden edge cases.
+The current runnable codebase still centers on one concrete sequence-oriented implementation through the existing `mtsf` path. It also includes a maintained `grid3d_forecasting` path for 3D grid forecasting based on per-step `.npy` caches imported from WindField4Cast-style raw files. Graph prediction remains an explicit extension target rather than a hidden edge case.
 
 ### Quick Start
 
@@ -66,6 +66,18 @@ Run the adapted TimeBase ETTh1 preset:
 
 ```bash
 python -m easytsf.workflow.experiment config/experiments/timebase/etth1.yaml
+```
+
+Import a WindField4Cast-style raw directory into the Grid3D per-step cache layout:
+
+```bash
+python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/windfield4cast_demo
+```
+
+Run the maintained UNet3D Grid3D preset:
+
+```bash
+python -m easytsf.workflow.experiment config/experiments/unet3d/windfield4cast_demo.yaml
 ```
 
 Run benchmark search:
@@ -138,7 +150,7 @@ Use $run-workflow-with-easytsf to classify this prediction task, tell me whether
 
 ## Current Implementation Note
 
-Today, the current runnable code path still uses the sequence-oriented `mtsf` implementation:
+Today, the current runnable code path still uses the sequence-oriented `mtsf` implementation, and it also ships a maintained `grid3d_forecasting` path for 3D grid forecasting:
 
 - `easytsf/data/mts_data_module.py`
 - `easytsf/task/mtsf.py`

@@ -2,6 +2,8 @@ import argparse
 import os
 from pathlib import Path
 
+from easytsf.task import validate_task_runtime_conf
+
 from .config import finalize_runtime_conf, load_experiment_config, load_module_from_path
 from .experiment import run_experiment
 
@@ -16,12 +18,16 @@ def load_benchmark(benchmark_ref):
     search_config["cpus_per_trial"] = int(search_config["cpus_per_trial"])
     search_config["gpus_per_trial"] = float(search_config["gpus_per_trial"])
     search_config["num_gpus"] = int(search_config["num_gpus"])
+    base_conf = load_experiment_config(experiment_path)
+    task_spec = validate_task_runtime_conf(base_conf)
     return {
         "name": str(raw_conf.get("name")),
-        "base_conf": load_experiment_config(experiment_path),
+        "base_conf": base_conf,
         "search_config": search_config,
         "search_save_dir": str(search_save_dir),
         "param_space": dict(raw_conf["param_space"]),
+        "task_name": task_spec.name,
+        "task_spec": task_spec,
     }
 
 

@@ -42,7 +42,7 @@ EasyTSF 在文档和 Skill 中，把 prediction work 拆成四层公开契约：
 - `graph_prediction`
 - `grid_prediction`
 
-当前可运行代码仍然主要落在一个 sequence-oriented 的 `mtsf` 路径上。对 graph 和 grid prediction，请把它们视为显式扩展目标，而不是隐含兼容的边角情况。
+当前可运行代码仍然主要落在一个 sequence-oriented 的 `mtsf` 路径上，同时也包含一个维护中的 `grid3d_forecasting` 路径，用于将 WindField4Cast 风格原始单步 `.nc` 数据导入为逐时间步 `.npy` cache 后进行 3D grid forecasting。对 graph prediction，请继续把它视为显式扩展目标，而不是隐含兼容的边角情况。
 
 ### Quick Start
 
@@ -70,6 +70,18 @@ python -m easytsf.workflow.experiment config/experiments/mixlinear/etth1.yaml
 
 ```bash
 python -m easytsf.workflow.experiment config/experiments/timebase/etth1.yaml
+```
+
+将 WindField4Cast 风格原始目录导入为 Grid3D 逐时间步 cache：
+
+```bash
+python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/windfield4cast_demo
+```
+
+运行维护中的 UNet3D Grid3D preset：
+
+```bash
+python -m easytsf.workflow.experiment config/experiments/unet3d/windfield4cast_demo.yaml
 ```
 
 运行 benchmark：
@@ -142,7 +154,7 @@ Use $run-workflow-with-easytsf to classify this prediction task, tell me whether
 
 ## Current Implementation Note
 
-当前可运行代码仍然集中在 sequence-oriented 的 `mtsf` 路径上，包括：
+当前可运行代码仍然集中在 sequence-oriented 的 `mtsf` 路径上，同时新增了一个可运行的 `grid3d_forecasting` 路径用于 3D 风场预测。`mtsf` 路径包括：
 
 - `easytsf/data/mts_data_module.py`
 - `easytsf/task/mtsf.py`
