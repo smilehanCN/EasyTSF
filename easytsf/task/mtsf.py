@@ -17,11 +17,6 @@ class MTSFTask(BaseForecastTask):
         train_variable = np.load(dataset_dir / "train_data.npy", mmap_mode=mmap_mode, allow_pickle=False)
         return StandardScaler.fit(train_variable)
 
-    def _apply(self, fn):
-        super()._apply(fn)
-        self.scaler.set_stats(fn(self.scaler.mean), fn(self.scaler.std))
-        return self
-
     def preprocess_batch(self, batch):
         var_x = batch["inputs"]
         marker_x = batch.get("inputs_timestamps")

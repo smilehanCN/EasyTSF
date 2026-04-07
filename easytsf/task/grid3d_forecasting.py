@@ -39,11 +39,6 @@ class Grid3DForecastingTask(BaseForecastTask):
             std = np.asarray(stats["std"], dtype=np.float32)
         return StandardScaler(mean[None, None, :, None, None, None], std[None, None, :, None, None, None])
 
-    def _apply(self, fn):
-        super()._apply(fn)
-        self.scaler.set_stats(fn(self.scaler.mean), fn(self.scaler.std))
-        return self
-
     def preprocess_batch(self, batch):
         var_x = batch["inputs"].float()
         var_y = batch["targets"].float()
@@ -52,7 +47,8 @@ class Grid3DForecastingTask(BaseForecastTask):
             coords = coords.float()
         return var_x, var_y, coords
 
-    def postprocess_outputs(self, prediction, label):
+    def postprocess_outputs(self, prediction, label, targets_mask=None):
+        del targets_mask
         return (
             self.scaler.inverse_transform(prediction),
             self.scaler.inverse_transform(label),

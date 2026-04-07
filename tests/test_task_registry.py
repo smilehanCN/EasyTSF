@@ -1,5 +1,5 @@
 from easytsf.data import MTSDataModule, WeatherDataModule
-from easytsf.task import TASK_REGISTRY, get_task_components, get_task_spec
+from easytsf.task import get_task_components, get_task_spec
 from easytsf.task.mtsf import MTSFTask
 from easytsf.task.weatherbench import WeatherBenchTask
 
@@ -31,7 +31,6 @@ def test_get_task_spec_returns_expected_metadata():
     assert grid_spec.supported_models == ("UNet3D",)
 
 
-def test_task_registry_remains_a_component_tuple_view():
-    assert TASK_REGISTRY["weatherbench"] == (WeatherDataModule, WeatherBenchTask)
+def test_get_task_components_returns_expected_tuple():
     assert get_task_components("weatherbench") == (WeatherDataModule, WeatherBenchTask)
-    assert TASK_REGISTRY["mtsf"] == (MTSDataModule, MTSFTask)
+    assert get_task_components("mtsf") == (MTSDataModule, MTSFTask)

@@ -66,11 +66,6 @@ TASK_SPECS = {
     ),
 }
 
-TASK_REGISTRY = {
-    name: (spec.datamodule_cls, spec.task_cls)
-    for name, spec in TASK_SPECS.items()
-}
-
 
 def get_task_spec(task: str) -> TaskSpec:
     try:

@@ -68,12 +68,6 @@ class WeatherBenchTask(BaseForecastTask):
         target_std = std[:, self.target_channel_indices, :, :]
         return StandardScaler(input_mean, input_std), StandardScaler(target_mean, target_std)
 
-    def _apply(self, fn):
-        super()._apply(fn)
-        self.input_scaler.set_stats(fn(self.input_scaler.mean), fn(self.input_scaler.std))
-        self.target_scaler.set_stats(fn(self.target_scaler.mean), fn(self.target_scaler.std))
-        return self
-
     def preprocess_batch(self, batch):
         var_x = batch["inputs"].float()
         marker_x = batch.get("inputs_timestamps")

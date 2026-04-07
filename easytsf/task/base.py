@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+from abc import abstractmethod
 
 import lightning.pytorch as L
 import torch
@@ -45,9 +46,41 @@ class BaseForecastTask(L.LightningModule):
                 raise ValueError("config must define required model argument '{}' for {}".format(name, model_name))
         return model_cls(**model_args)
 
+    @abstractmethod
     def postprocess_outputs(self, prediction, label, targets_mask=None):
-        del targets_mask
-        return prediction, label
+        """Post-process model outputs and labels.
+        
+        Args:
+            prediction: Model predictions
+            label: Ground truth labels
+            targets_mask: Optional mask for targets
+            
+        Returns:
+            Tuple of (processed_prediction, processed_label)
+        """
+        pass
+
+    def _apply(self, fn):
+        """Apply a function to all tensors in the module, including scaler stats.
+        
+        This method is called by PyTorch when moving the module to a different device
+        or changing its dtype. We override it to ensure scaler mean/std tensors are
+        also moved to the correct device.
+        
+        Args:
+            fn: Function to apply to all tensors
+            
+        Returns:
+            self
+        """
+        super()._apply(fn)
+        # Automatically handle all scaler attributes
+        for attr_name in dir(self):
+            if 'scaler' in attr_name.lower():
+                scaler = getattr(self, attr_name, None)
+                if scaler is not None and hasattr(scaler, 'set_stats'):
+                    scaler.set_stats(fn(scaler.mean), fn(scaler.std))
+        return self
 
     def _forward(self, batch):
         raise NotImplementedError
