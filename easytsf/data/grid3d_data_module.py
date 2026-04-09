@@ -149,9 +149,7 @@ class Grid3DStepDataset(Dataset):
             mmap_mode="r" if self.use_mmap else None,
             allow_pickle=False,
         )
-        self.x = np.load(self.dataset_dir / "x.npy", mmap_mode="r" if self.use_mmap else None, allow_pickle=False)
-        self.y = np.load(self.dataset_dir / "y.npy", mmap_mode="r" if self.use_mmap else None, allow_pickle=False)
-        self.z = np.load(self.dataset_dir / "z.npy", mmap_mode="r" if self.use_mmap else None, allow_pickle=False)
+        self.coord = np.load(self.dataset_dir / "coord.npy", mmap_mode="r" if self.use_mmap else None, allow_pickle=False)
 
         self.step_paths = [self.split_dir / "{:06d}.npy".format(step_index) for step_index in range(int(self.timestamps.shape[0]))]
         missing_paths = [path for path in self.step_paths if not path.is_file()]
@@ -212,11 +210,14 @@ class Grid3DStepDataset(Dataset):
 
     def _build_coords(self, bbox: tuple[int, int, int, int, int, int]) -> np.ndarray:
         y_start, y_stop, x_start, x_stop, z_start, z_stop = bbox
-        x = normalize_axis(self.x[x_start:x_stop])
-        y = normalize_axis(self.y[y_start:y_stop])
-        z = normalize_axis(self.z[z_start:z_stop])
-        yy, xx, zz = np.meshgrid(y, x, z, indexing="ij")
-        return np.stack([yy, xx, zz], axis=0).astype(np.float32, copy=False)
+        coord = np.array(
+            self.coord[:, y_start:y_stop, x_start:x_stop, z_start:z_stop],
+            dtype=np.float32,
+            copy=True,
+        )
+        for channel_idx in range(coord.shape[0]):
+            coord[channel_idx] = normalize_axis(coord[channel_idx].reshape(-1)).reshape(coord[channel_idx].shape)
+        return coord
 
     def __getitem__(self, index: int) -> dict[str, np.ndarray]:
         if self.mode == "train":
