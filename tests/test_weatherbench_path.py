@@ -159,3 +159,28 @@ def test_weatherbench_loader_without_static_fields(tmp_path):
     datamodule = WeatherDataModule(**_build_runtime_conf(tmp_path, dataset_dir.name))
     batch = next(iter(datamodule.train_dataloader()))
     assert "static_inputs" not in batch
+
+
+def test_weatherbench_invalid_target_input_channel_combo_still_fails(tmp_path):
+    dataset_dir = tmp_path / "weatherbench_bad_channels"
+    write_canonical_weather_dataset(
+        ds=_build_dynamic_dataset(),
+        out_dir=dataset_dir,
+        input_variables=["t2m", "z"],
+        target_variables=["t2m"],
+        levels={"z": [500]},
+        split_spec={
+            "train": ["2020-01-01T00:00", "2020-01-01T18:00"],
+            "val": ["2020-01-02T00:00", "2020-01-02T18:00"],
+            "test": ["2020-01-03T00:00", "2020-01-03T18:00"],
+        },
+        shard_len=2,
+        source_format="weatherbench_netcdf",
+    )
+
+    runtime_conf = _build_runtime_conf(tmp_path, dataset_dir.name)
+    runtime_conf["input_channel_names"] = ["t2m"]
+    runtime_conf["target_channel_names"] = ["z_500"]
+
+    with pytest.raises(KeyError, match="z_500"):
+        WeatherBenchTask(**runtime_conf)

@@ -46,9 +46,6 @@ class BaseForecastTask(L.LightningModule):
                 continue
             if name in derived_args:
                 model_args[name] = derived_args[name]
-                continue
-            if parameter.default is inspect.Parameter.empty:
-                raise ValueError("config must define required model argument '{}' for {}".format(name, model_name))
         return model_cls(**model_args)
 
     @abstractmethod

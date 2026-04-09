@@ -1,6 +1,8 @@
 import pytest
+import torch.nn as nn
 
 from easytsf.task import get_task_spec, validate_task_runtime_conf
+from easytsf.task.base import BaseForecastTask
 
 
 def test_validate_task_runtime_conf_accepts_valid_pair():
@@ -45,3 +47,22 @@ def test_validate_task_runtime_conf_rejects_invalid_val_metric():
 
     with pytest.raises(ValueError, match="supported validation metrics"):
         validate_task_runtime_conf(runtime_conf)
+
+
+def test_base_forecast_task_lets_model_constructor_report_missing_args(monkeypatch):
+    class DummyModel(nn.Module):
+        def __init__(self, required_arg):
+            super().__init__()
+            self.required_arg = required_arg
+
+        def forward(self, *args, **kwargs):
+            raise NotImplementedError
+
+    class DummyTask(BaseForecastTask):
+        def postprocess_outputs(self, prediction, label, targets_mask=None):
+            return prediction, label
+
+    monkeypatch.setattr("easytsf.task.base.get_model_class", lambda name: DummyModel)
+
+    with pytest.raises(TypeError, match="required_arg"):
+        DummyTask(model="DummyModel", optimizer="Adam", lr_scheduler="StepLR")

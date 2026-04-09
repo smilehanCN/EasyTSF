@@ -26,8 +26,6 @@ class WeatherBenchTask(BaseForecastTask):
         self.input_channel_indices = [channel_name_to_index[name] for name in self.input_channel_names]
         self.target_channel_indices = [channel_name_to_index[name] for name in self.target_channel_names]
         input_channel_positions = {name: index for index, name in enumerate(self.input_channel_names)}
-        if not set(self.target_channel_names).issubset(set(self.input_channel_names)):
-            raise ValueError("target_channel_names must be a subset of input_channel_names")
 
         self.register_buffer(
             "target_input_index_tensor",
