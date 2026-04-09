@@ -40,6 +40,9 @@ class WeatherBenchTask(BaseForecastTask):
 
         self.input_scaler, self.target_scaler = self._build_scalers()
 
+    def _iter_standard_scalers(self):
+        return (self.input_scaler, self.target_scaler)
+
     def _get_model_derived_args(self):
         return {
             "hist_len": int(self.hparams.hist_len),

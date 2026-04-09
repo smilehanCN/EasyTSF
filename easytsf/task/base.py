@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from abc import abstractmethod
+from collections.abc import Iterable
 
 import lightning.pytorch as L
 import torch
@@ -9,6 +10,7 @@ import torch.nn as nn
 import torch.optim.lr_scheduler as lrs
 from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError
 
+from easytsf.data.scaler import StandardScaler
 from easytsf.model import get_model_class
 
 
@@ -27,6 +29,9 @@ class BaseForecastTask(L.LightningModule):
 
     def _get_model_derived_args(self):
         return {}
+
+    def _iter_standard_scalers(self) -> Iterable[StandardScaler]:
+        return ()
 
     def _instantiate_registered_model(self, derived_args=None):
         model_name = self.hparams.model
@@ -74,12 +79,10 @@ class BaseForecastTask(L.LightningModule):
             self
         """
         super()._apply(fn)
-        # Automatically handle all scaler attributes
-        for attr_name in dir(self):
-            if 'scaler' in attr_name.lower():
-                scaler = getattr(self, attr_name, None)
-                if scaler is not None and hasattr(scaler, 'set_stats'):
-                    scaler.set_stats(fn(scaler.mean), fn(scaler.std))
+        for scaler in self._iter_standard_scalers():
+            if scaler is None:
+                continue
+            scaler.set_stats(fn(scaler.mean), fn(scaler.std))
         return self
 
     def _forward(self, batch):

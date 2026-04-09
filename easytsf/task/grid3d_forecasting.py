@@ -21,6 +21,9 @@ class Grid3DForecastingTask(BaseForecastTask):
 
         self.scaler = self._build_scaler()
 
+    def _iter_standard_scalers(self):
+        return (self.scaler,)
+
     def _get_model_derived_args(self):
         return {
             "hist_len": int(self.hparams.hist_len),

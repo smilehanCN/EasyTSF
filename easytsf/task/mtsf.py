@@ -11,6 +11,9 @@ class MTSFTask(BaseForecastTask):
     def _setup_task_state(self):
         self.scaler = self._build_scaler()
 
+    def _iter_standard_scalers(self):
+        return (self.scaler,)
+
     def _build_scaler(self):
         dataset_dir = Path(self.hparams.data_root).expanduser() / str(self.hparams.dataset)
         mmap_mode = "r" if bool(getattr(self.hparams, "use_mmap", False)) else None
