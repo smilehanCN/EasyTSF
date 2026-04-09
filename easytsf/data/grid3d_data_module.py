@@ -9,14 +9,6 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset
 
 
-def normalize_axis(values: np.ndarray) -> np.ndarray:
-    values = np.asarray(values, dtype=np.float32)
-    span = float(values[-1] - values[0])
-    if span == 0.0:
-        return np.zeros_like(values, dtype=np.float32)
-    return ((values - values[0]) / span) * 2.0 - 1.0
-
-
 def normalize_spatial_shape(raw_shape, grid_shape, field_name: str) -> tuple[int, int, int]:
     if raw_shape is None:
         return tuple(int(size) for size in grid_shape)
@@ -140,25 +132,71 @@ class Grid3DStepDataset(Dataset):
 
         with (self.dataset_dir / "meta.json").open("r", encoding="utf-8") as handle:
             self.meta = json.load(handle)
+        storage_format = str(self.meta.get("storage_format", ""))
+        if storage_format != "grid3d_split_npy_v1":
+            raise ValueError(
+                "unsupported Grid3D storage_format '{}'; expected 'grid3d_split_npy_v1'".format(storage_format)
+            )
         self.grid_shape = tuple(int(size) for size in self.meta["grid_shape"])
         self.channel_names = list(self.meta["channel_names"])
 
-        self.split_dir = self.dataset_dir / self.split
-        self.timestamps = np.load(
-            self.split_dir / "timestamps.npy",
+        self.variable = np.load(
+            self.dataset_dir / "{}_data.npy".format(self.split),
             mmap_mode="r" if self.use_mmap else None,
             allow_pickle=False,
         )
-        self.coord = np.load(self.dataset_dir / "coord.npy", mmap_mode="r" if self.use_mmap else None, allow_pickle=False)
+        expected_variable_shape = (len(self.channel_names), *self.grid_shape)
+        if self.variable.ndim != 5 or tuple(self.variable.shape[1:]) != expected_variable_shape:
+            raise ValueError(
+                "expected {}_data.npy to have shape [T, C, Y, X, Z] with trailing dims {}, but received {}".format(
+                    self.split,
+                    expected_variable_shape,
+                    tuple(self.variable.shape),
+                )
+            )
+        self.timestamps = np.load(
+            self.dataset_dir / "{}_timestamps.npy".format(self.split),
+            mmap_mode="r" if self.use_mmap else None,
+            allow_pickle=False,
+        )
+        if int(self.timestamps.shape[0]) != int(self.variable.shape[0]):
+            raise ValueError(
+                "time length mismatch for split '{}': {}_data.npy has {} steps but {}_timestamps.npy has {}".format(
+                    self.split,
+                    self.split,
+                    int(self.variable.shape[0]),
+                    self.split,
+                    int(self.timestamps.shape[0]),
+                )
+            )
 
-        self.step_paths = [self.split_dir / "{:06d}.npy".format(step_index) for step_index in range(int(self.timestamps.shape[0]))]
-        missing_paths = [path for path in self.step_paths if not path.is_file()]
-        if missing_paths:
-            raise ValueError("missing step files under '{}'; first missing file is '{}'".format(self.split_dir, missing_paths[0].name))
+        self.coord = None
+        if self.use_coords:
+            self.coord = np.load(
+                self.dataset_dir / "coord.npy",
+                mmap_mode="r" if self.use_mmap else None,
+                allow_pickle=False,
+            )
+            expected_coord_shape = (3, *self.grid_shape)
+            if tuple(self.coord.shape) != expected_coord_shape:
+                raise ValueError(
+                    "expected coord.npy to have shape {}, but received {}".format(
+                        expected_coord_shape,
+                        tuple(self.coord.shape),
+                    )
+                )
 
-        self.total_windows = len(self.step_paths) - (self.hist_len + self.pred_len) + 1
+        self.total_windows = int(self.variable.shape[0]) - (self.hist_len + self.pred_len) + 1
         if self.total_windows <= 0:
-            raise ValueError("invalid dataset split for sliding window")
+            raise ValueError(
+                "split '{}' requires at least {} steps for hist_len={} and pred_len={}, but only has {}".format(
+                    self.split,
+                    self.hist_len + self.pred_len,
+                    self.hist_len,
+                    self.pred_len,
+                    int(self.variable.shape[0]),
+                )
+            )
 
         self.patch_shape = None
         self.tile_shape = None
@@ -190,34 +228,19 @@ class Grid3DStepDataset(Dataset):
             starts[2] + self.patch_shape[2],
         )
 
-    def _load_step(self, step_index: int, bbox: tuple[int, int, int, int, int, int]) -> np.ndarray:
-        array = np.load(
-            self.step_paths[step_index],
-            mmap_mode="r" if self.use_mmap else None,
-            allow_pickle=False,
-        )
+    def _load_window(self, start_index: int, stop_index: int, bbox: tuple[int, int, int, int, int, int]) -> np.ndarray:
         y_start, y_stop, x_start, x_stop, z_start, z_stop = bbox
         return np.asarray(
-            array[:, y_start:y_stop, x_start:x_stop, z_start:z_stop],
+            self.variable[start_index:stop_index, :, y_start:y_stop, x_start:x_stop, z_start:z_stop],
             dtype=np.float32,
-        )
-
-    def _load_window(self, start_index: int, stop_index: int, bbox: tuple[int, int, int, int, int, int]) -> np.ndarray:
-        return np.stack(
-            [self._load_step(step_index, bbox) for step_index in range(start_index, stop_index)],
-            axis=0,
         )
 
     def _build_coords(self, bbox: tuple[int, int, int, int, int, int]) -> np.ndarray:
         y_start, y_stop, x_start, x_stop, z_start, z_stop = bbox
-        coord = np.array(
+        return np.asarray(
             self.coord[:, y_start:y_stop, x_start:x_stop, z_start:z_stop],
             dtype=np.float32,
-            copy=True,
         )
-        for channel_idx in range(coord.shape[0]):
-            coord[channel_idx] = normalize_axis(coord[channel_idx].reshape(-1)).reshape(coord[channel_idx].shape)
-        return coord
 
     def __getitem__(self, index: int) -> dict[str, np.ndarray]:
         if self.mode == "train":

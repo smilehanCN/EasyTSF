@@ -2,6 +2,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pytest
 import torch
 
 from easytsf.data import Grid3DDataModule
@@ -89,7 +90,7 @@ def _build_runtime_conf(dataset_root: Path, dataset_name: str, *, hist_len: int,
     }
 
 
-def test_grid3d_importer_writes_step_dataset(tmp_path):
+def test_grid3d_importer_writes_split_arrays(tmp_path):
     raw_dir = _build_raw_dataset(tmp_path / "raw")
     out_dir = tmp_path / "grid3d_demo"
 
@@ -99,25 +100,33 @@ def test_grid3d_importer_writes_step_dataset(tmp_path):
         split_spec=TRAIN_SPLIT_SPEC,
     )
 
-    assert meta["storage_format"] == "grid3d_step_npy_v1"
-    assert meta["data_layout"] == "C,Y,X,Z"
+    assert meta["storage_format"] == "grid3d_split_npy_v1"
+    assert meta["data_layout"] == "T,C,Y,X,Z"
     assert meta["grid_shape"] == list(GRID_SHAPE)
     assert meta["split_lengths"] == {"train": 24, "val": 20, "test": 20}
-    assert (out_dir / "x.npy").exists()
-    assert (out_dir / "y.npy").exists()
-    assert (out_dir / "z.npy").exists()
+    assert (out_dir / "coord.npy").exists()
     assert (out_dir / "stats.npz").exists()
-    assert (out_dir / "train" / "timestamps.npy").exists()
-    assert (out_dir / "train" / "000000.npy").exists()
-    assert (out_dir / "test" / "000019.npy").exists()
+    assert (out_dir / "train_timestamps.npy").exists()
+    assert (out_dir / "train_data.npy").exists()
+    assert (out_dir / "test_data.npy").exists()
 
     with np.load(out_dir / "stats.npz") as stats:
         assert stats["mean"].shape == (3,)
         assert stats["std"].shape == (3,)
 
-    train_step = np.load(out_dir / "train" / "000000.npy")
-    assert train_step.shape == (3, *GRID_SHAPE)
-    assert train_step.dtype == np.float32
+    coord = np.load(out_dir / "coord.npy")
+    assert coord.shape == (3, *GRID_SHAPE)
+    assert coord.dtype == np.float32
+    assert np.isclose(coord[0, 0, 0, 0], -1.0)
+    assert np.isclose(coord[0, -1, 0, 0], 1.0)
+    assert np.isclose(coord[1, 0, 0, 0], -1.0)
+    assert np.isclose(coord[1, 0, -1, 0], 1.0)
+    assert np.isclose(coord[2, 0, 0, 0], -1.0)
+    assert np.isclose(coord[2, 0, 0, -1], 1.0)
+
+    train_data = np.load(out_dir / "train_data.npy")
+    assert train_data.shape == (24, 3, *GRID_SHAPE)
+    assert train_data.dtype == np.float32
 
 
 def test_grid3d_datamodule_and_task_forward(tmp_path):
@@ -171,6 +180,28 @@ def test_grid3d_full_size_train_path(tmp_path):
     train_batch = next(iter(datamodule.train_dataloader()))
     assert train_batch["inputs"].shape == (1, 10, 3, *GRID_SHAPE)
     assert train_batch["targets"].shape == (1, 10, 3, *GRID_SHAPE)
+
+
+def test_grid3d_split_requires_enough_steps(tmp_path):
+    raw_dir = _build_raw_dataset(tmp_path / "raw", num_steps=40)
+    dataset_dir = tmp_path / "grid3d_demo"
+    import_grid3d_dataset(
+        input_dir=raw_dir,
+        out_dir=dataset_dir,
+        split_spec={"train": [0, 20], "val": [20, 30], "test": [30, 40]},
+    )
+
+    runtime_conf = _build_runtime_conf(
+        tmp_path,
+        dataset_dir.name,
+        hist_len=10,
+        pred_len=10,
+        train_patch_shape=(32, 32, 16),
+    )
+    datamodule = Grid3DDataModule(**runtime_conf)
+
+    with pytest.raises(ValueError, match="split 'val' requires at least 20 steps"):
+        datamodule.val_dataloader()
 
 
 def test_grid3d_eval_tiles_cover_volume_once():

@@ -10,11 +10,12 @@ from typing import Any
 import h5py
 import numpy as np
 import yaml
+from numpy.lib.format import open_memmap
 
 
 TIME_PATTERN = re.compile(r"t(\d+)\.nc$")
 SUPPORTED_SOURCE_FORMATS = {"wf4cast_hdf5_netcdf_like"}
-DEFAULT_STORAGE_FORMAT = "grid3d_step_npy_v1"
+DEFAULT_STORAGE_FORMAT = "grid3d_split_npy_v1"
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,24 @@ def load_grid3d_coords(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.nda
         y = np.asarray(handle["y"][:], dtype=np.float32)
         z = np.asarray(handle["z"][:], dtype=np.float32)
     return x, y, z
+
+
+def normalize_axis(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float32)
+    span = float(values[-1] - values[0])
+    if span == 0.0:
+        return np.zeros_like(values, dtype=np.float32)
+    return ((values - values[0]) / span) * 2.0 - 1.0
+
+
+def build_coord_volume(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+    yy, xx, zz = np.meshgrid(
+        normalize_axis(y),
+        normalize_axis(x),
+        normalize_axis(z),
+        indexing="ij",
+    )
+    return np.stack([yy, xx, zz], axis=0).astype(np.float32, copy=False)
 
 
 def build_records(input_dir: str | Path, pattern: str) -> list[Grid3DRecord]:
@@ -175,7 +194,7 @@ def _compute_channel_stats(records: list[Grid3DRecord], expected_shape: tuple[in
     return mean.astype(np.float32), std.astype(np.float32)
 
 
-def write_grid3d_step_dataset(
+def write_grid3d_split_dataset(
     *,
     input_dir: str | Path,
     out_dir: str | Path,
@@ -216,21 +235,22 @@ def write_grid3d_step_dataset(
 
     dataset_dir = Path(out_dir).expanduser().resolve()
     dataset_dir.mkdir(parents=True, exist_ok=True)
-    np.save(dataset_dir / "x.npy", x.astype(np.float32, copy=False))
-    np.save(dataset_dir / "y.npy", y.astype(np.float32, copy=False))
-    np.save(dataset_dir / "z.npy", z.astype(np.float32, copy=False))
+    np.save(dataset_dir / "coord.npy", build_coord_volume(x, y, z))
     np.savez(dataset_dir / "stats.npz", mean=mean, std=std)
 
     split_lengths = {}
     for split_name in ("train", "val", "test"):
         split_start, split_end = normalized_split_spec[split_name]
         split_records = records[split_start:split_end]
-        split_dir = dataset_dir / split_name
-        split_dir.mkdir(parents=True, exist_ok=True)
-
         timestamps = np.asarray([record.time_s for record in split_records], dtype=np.float64)
-        np.save(split_dir / "timestamps.npy", timestamps)
+        np.save(dataset_dir / "{}_timestamps.npy".format(split_name), timestamps)
         split_lengths[split_name] = int(len(split_records))
+        split_data = open_memmap(
+            dataset_dir / "{}_data.npy".format(split_name),
+            mode="w+",
+            dtype=np.float32,
+            shape=(len(split_records), 3, *expected_shape),
+        )
 
         for step_index, record in enumerate(split_records):
             u, v, w, _ = load_grid3d_step(record.path)
@@ -238,12 +258,14 @@ def write_grid3d_step_dataset(
                 raise ValueError("unexpected grid shape in '{}'".format(record.path))
             step = np.stack([u, v, w], axis=0).astype(np.float32, copy=False)
             normalized_step = (step - mean_view) / std_view
-            np.save(split_dir / "{:06d}.npy".format(step_index), normalized_step.astype(np.float32, copy=False))
+            split_data[step_index] = normalized_step.astype(np.float32, copy=False)
+        split_data.flush()
+        del split_data
 
     meta = {
         "task_type": "grid_prediction",
         "storage_format": str(storage_format),
-        "data_layout": "C,Y,X,Z",
+        "data_layout": "T,C,Y,X,Z",
         "grid_shape": [int(expected_shape[0]), int(expected_shape[1]), int(expected_shape[2])],
         "channel_names": ["U", "V", "W"],
         "storage_dtype": "float32",
@@ -267,7 +289,7 @@ def import_grid3d_dataset(
     val_fraction: float = 0.2,
     source_format: str = "wf4cast_hdf5_netcdf_like",
 ) -> dict[str, Any]:
-    return write_grid3d_step_dataset(
+    return write_grid3d_split_dataset(
         input_dir=input_dir,
         out_dir=out_dir,
         pattern=pattern,
@@ -279,7 +301,7 @@ def import_grid3d_dataset(
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Import 3D grid forecasting data into per-step .npy files.")
+    parser = argparse.ArgumentParser(description="Import 3D grid forecasting data into split-level .npy arrays.")
     parser.add_argument("--input-dir", required=True, help="Directory with WindField4Cast-style single-step .nc files.")
     parser.add_argument("--out-dir", required=True, help="Output directory for the EasyTSF Grid3D dataset.")
     parser.add_argument(
