@@ -132,11 +132,6 @@ class Grid3DStepDataset(Dataset):
 
         with (self.dataset_dir / "meta.json").open("r", encoding="utf-8") as handle:
             self.meta = json.load(handle)
-        storage_format = str(self.meta.get("storage_format", ""))
-        if storage_format != "grid3d_split_npy_v1":
-            raise ValueError(
-                "unsupported Grid3D storage_format '{}'; expected 'grid3d_split_npy_v1'".format(storage_format)
-            )
         self.grid_shape = tuple(int(size) for size in self.meta["grid_shape"])
         self.channel_names = list(self.meta["channel_names"])
 
@@ -145,30 +140,11 @@ class Grid3DStepDataset(Dataset):
             mmap_mode="r" if self.use_mmap else None,
             allow_pickle=False,
         )
-        expected_variable_shape = (len(self.channel_names), *self.grid_shape)
-        if self.variable.ndim != 5 or tuple(self.variable.shape[1:]) != expected_variable_shape:
-            raise ValueError(
-                "expected {}_data.npy to have shape [T, C, Y, X, Z] with trailing dims {}, but received {}".format(
-                    self.split,
-                    expected_variable_shape,
-                    tuple(self.variable.shape),
-                )
-            )
         self.timestamps = np.load(
             self.dataset_dir / "{}_timestamps.npy".format(self.split),
             mmap_mode="r" if self.use_mmap else None,
             allow_pickle=False,
         )
-        if int(self.timestamps.shape[0]) != int(self.variable.shape[0]):
-            raise ValueError(
-                "time length mismatch for split '{}': {}_data.npy has {} steps but {}_timestamps.npy has {}".format(
-                    self.split,
-                    self.split,
-                    int(self.variable.shape[0]),
-                    self.split,
-                    int(self.timestamps.shape[0]),
-                )
-            )
 
         self.coord = None
         if self.use_coords:
@@ -177,26 +153,10 @@ class Grid3DStepDataset(Dataset):
                 mmap_mode="r" if self.use_mmap else None,
                 allow_pickle=False,
             )
-            expected_coord_shape = (3, *self.grid_shape)
-            if tuple(self.coord.shape) != expected_coord_shape:
-                raise ValueError(
-                    "expected coord.npy to have shape {}, but received {}".format(
-                        expected_coord_shape,
-                        tuple(self.coord.shape),
-                    )
-                )
 
         self.total_windows = int(self.variable.shape[0]) - (self.hist_len + self.pred_len) + 1
         if self.total_windows <= 0:
-            raise ValueError(
-                "split '{}' requires at least {} steps for hist_len={} and pred_len={}, but only has {}".format(
-                    self.split,
-                    self.hist_len + self.pred_len,
-                    self.hist_len,
-                    self.pred_len,
-                    int(self.variable.shape[0]),
-                )
-            )
+            raise ValueError("invalid dataset split for sliding window")
 
         self.patch_shape = None
         self.tile_shape = None

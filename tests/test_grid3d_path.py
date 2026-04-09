@@ -200,7 +200,7 @@ def test_grid3d_split_requires_enough_steps(tmp_path):
     )
     datamodule = Grid3DDataModule(**runtime_conf)
 
-    with pytest.raises(ValueError, match="split 'val' requires at least 20 steps"):
+    with pytest.raises(ValueError, match="invalid dataset split for sliding window"):
         datamodule.val_dataloader()
 
 

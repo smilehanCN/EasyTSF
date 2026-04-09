@@ -55,24 +55,6 @@ def load_grid3d_coords(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.nda
     return x, y, z
 
 
-def normalize_axis(values: np.ndarray) -> np.ndarray:
-    values = np.asarray(values, dtype=np.float32)
-    span = float(values[-1] - values[0])
-    if span == 0.0:
-        return np.zeros_like(values, dtype=np.float32)
-    return ((values - values[0]) / span) * 2.0 - 1.0
-
-
-def build_coord_volume(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
-    yy, xx, zz = np.meshgrid(
-        normalize_axis(y),
-        normalize_axis(x),
-        normalize_axis(z),
-        indexing="ij",
-    )
-    return np.stack([yy, xx, zz], axis=0).astype(np.float32, copy=False)
-
-
 def build_records(input_dir: str | Path, pattern: str) -> list[Grid3DRecord]:
     dataset_dir = Path(input_dir).expanduser().resolve()
     records = []
@@ -170,7 +152,7 @@ def infer_frequency_seconds(records: list[Grid3DRecord]) -> float | None:
     return float(positive_deltas[0])
 
 
-def _compute_channel_stats(records: list[Grid3DRecord], expected_shape: tuple[int, int, int]) -> tuple[np.ndarray, np.ndarray]:
+def _compute_channel_stats(records: list[Grid3DRecord]) -> tuple[np.ndarray, np.ndarray]:
     channel_sums = np.zeros(3, dtype=np.float64)
     channel_sum_squares = np.zeros(3, dtype=np.float64)
     total_value_count = 0
@@ -194,7 +176,7 @@ def _compute_channel_stats(records: list[Grid3DRecord], expected_shape: tuple[in
     return mean.astype(np.float32), std.astype(np.float32)
 
 
-def write_grid3d_split_dataset(
+def import_grid3d_dataset(
     *,
     input_dir: str | Path,
     out_dir: str | Path,
@@ -203,7 +185,6 @@ def write_grid3d_split_dataset(
     train_fraction: float = 0.6,
     val_fraction: float = 0.2,
     source_format: str = "wf4cast_hdf5_netcdf_like",
-    storage_format: str = DEFAULT_STORAGE_FORMAT,
 ) -> dict[str, Any]:
     if source_format not in SUPPORTED_SOURCE_FORMATS:
         raise ValueError(
@@ -225,17 +206,28 @@ def write_grid3d_split_dataset(
     x, y, z = load_grid3d_coords(records[0].path)
     sample_u, sample_v, sample_w, _ = load_grid3d_step(records[0].path)
     expected_shape = sample_u.shape
-    if sample_v.shape != expected_shape or sample_w.shape != expected_shape:
-        raise ValueError("U/V/W shapes do not match in '{}'".format(records[0].path))
 
     train_start, train_end = normalized_split_spec["train"]
-    mean, std = _compute_channel_stats(records[train_start:train_end], expected_shape=expected_shape)
+    mean, std = _compute_channel_stats(records[train_start:train_end])
     mean_view = mean[:, None, None, None]
     std_view = std[:, None, None, None]
 
     dataset_dir = Path(out_dir).expanduser().resolve()
     dataset_dir.mkdir(parents=True, exist_ok=True)
-    np.save(dataset_dir / "coord.npy", build_coord_volume(x, y, z))
+    def normalize_axis(values):
+        values = np.asarray(values, dtype=np.float32)
+        span = float(values[-1] - values[0])
+        if span == 0.0:
+            return np.zeros_like(values, dtype=np.float32)
+        return ((values - values[0]) / span) * 2.0 - 1.0
+
+    yy, xx, zz = np.meshgrid(
+        normalize_axis(y),
+        normalize_axis(x),
+        normalize_axis(z),
+        indexing="ij",
+    )
+    np.save(dataset_dir / "coord.npy", np.stack([yy, xx, zz], axis=0).astype(np.float32, copy=False))
     np.savez(dataset_dir / "stats.npz", mean=mean, std=std)
 
     split_lengths = {}
@@ -254,8 +246,6 @@ def write_grid3d_split_dataset(
 
         for step_index, record in enumerate(split_records):
             u, v, w, _ = load_grid3d_step(record.path)
-            if u.shape != expected_shape or v.shape != expected_shape or w.shape != expected_shape:
-                raise ValueError("unexpected grid shape in '{}'".format(record.path))
             step = np.stack([u, v, w], axis=0).astype(np.float32, copy=False)
             normalized_step = (step - mean_view) / std_view
             split_data[step_index] = normalized_step.astype(np.float32, copy=False)
@@ -264,7 +254,7 @@ def write_grid3d_split_dataset(
 
     meta = {
         "task_type": "grid_prediction",
-        "storage_format": str(storage_format),
+        "storage_format": DEFAULT_STORAGE_FORMAT,
         "data_layout": "T,C,Y,X,Z",
         "grid_shape": [int(expected_shape[0]), int(expected_shape[1]), int(expected_shape[2])],
         "channel_names": ["U", "V", "W"],
@@ -277,27 +267,6 @@ def write_grid3d_split_dataset(
     }
     dump_json(dataset_dir / "meta.json", meta)
     return meta
-
-
-def import_grid3d_dataset(
-    *,
-    input_dir: str | Path,
-    out_dir: str | Path,
-    pattern: str = "wind_grid_t*.nc",
-    split_spec: dict[str, Any] | None = None,
-    train_fraction: float = 0.6,
-    val_fraction: float = 0.2,
-    source_format: str = "wf4cast_hdf5_netcdf_like",
-) -> dict[str, Any]:
-    return write_grid3d_split_dataset(
-        input_dir=input_dir,
-        out_dir=out_dir,
-        pattern=pattern,
-        split_spec=split_spec,
-        train_fraction=train_fraction,
-        val_fraction=val_fraction,
-        source_format=source_format,
-    )
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
