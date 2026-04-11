@@ -1,0 +1,47 @@
+# model
+model: PCMLP
+freq: 10
+use_norm: true
+patch_size: 16
+patch_step: 8
+init_dim: 256
+dim_assign_alg: step2
+use_tod: true
+use_dow: false
+head_drop: 0.1
+encoder_drop: 0.0
+use_tokenizer_var_aware: true
+use_encoder_var_aware: true
+
+# data
+dataset: Weather
+hist_len: 96
+pred_len: 96
+var_num: 21
+time_feature_descriptions:
+  - time of day
+
+# train
+seed: 42
+batch_size: 128
+max_epochs: 30
+lr: 0.0001
+lr_scheduler: OneCycleLR
+lrs_pct_start: 0.3
+es_patience: 5
+optimizer: Adam
+gradient_clip_val: 1.0
+gradient_clip_algorithm: norm
+val_metric: val/loss
+test_metric_space: scaled
+
+# runtime
+task: mtsf
+num_workers: 2
+pin_memory: null
+persistent_workers: null
+prefetch_factor: 2
+use_mmap: false
+data_root: dataset
+save_root: checkpoint
+devices: [0]

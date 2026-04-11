@@ -16,6 +16,17 @@ def test_validate_task_runtime_conf_accepts_valid_pair():
     assert task_spec == get_task_spec("weatherbench")
 
 
+def test_validate_task_runtime_conf_accepts_pcmlp_for_mtsf():
+    runtime_conf = {
+        "task": "mtsf",
+        "model": "PCMLP",
+        "val_metric": "val/loss",
+    }
+
+    task_spec = validate_task_runtime_conf(runtime_conf)
+    assert task_spec == get_task_spec("mtsf")
+
+
 def test_validate_task_runtime_conf_rejects_invalid_model_for_task():
     runtime_conf = {
         "task": "mtsf",

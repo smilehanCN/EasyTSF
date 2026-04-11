@@ -12,6 +12,7 @@ def test_get_task_spec_returns_expected_metadata():
     assert mtsf_spec.supported_models == (
         "iTransformer",
         "MixLinear",
+        "PCMLP",
         "TQNet",
         "STID",
         "SparseTSF",

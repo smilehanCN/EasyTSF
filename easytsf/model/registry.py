@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .itransformer import Model as iTransformerModel
 from .mixlinear import Model as MixLinearModel
+from .pcmlp import Model as PCMLPModel
 from .sparsetsf import Model as SparseTSFModel
 from .stid import Model as STIDModel
 from .stgcn import Model as STGCNModel
@@ -14,6 +15,7 @@ from .weatherbench_persistence import Model as WeatherBenchPersistenceModel
 MODEL_REGISTRY = {
     "iTransformer": iTransformerModel,
     "MixLinear": MixLinearModel,
+    "PCMLP": PCMLPModel,
     "TQNet": TQNetModel,
     "STGCN": STGCNModel,
     "STID": STIDModel,
