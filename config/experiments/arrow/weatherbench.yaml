@@ -1,0 +1,51 @@
+# model
+model: ARROW
+arrow_patch_size: 4
+arrow_hidden_size: 1024
+arrow_depth: 16
+arrow_num_heads: 16
+arrow_mlp_ratio: 2.0
+arrow_rope_type: mixed
+arrow_rope_theta: 100.0
+arrow_use_mla: false
+arrow_use_moe: true
+arrow_routed_num_experts: 9
+arrow_shared_num_experts: 1
+arrow_selected_experts: 3
+arrow_train_intervals: [6, 12, 24]
+arrow_ring_pos_embed: true
+
+# data
+dataset: weatherbench_demo
+hist_len: 1
+pred_len: 1
+input_channel_names: null
+target_channel_names: null
+
+# train
+seed: 42
+batch_size: 2
+max_epochs: 20
+lr: 0.0003
+lr_scheduler: StepLR
+lr_step_size: 1
+lr_gamma: 1.0
+es_patience: 5
+optimizer: AdamW
+gradient_clip_val: 0.0
+gradient_clip_algorithm: norm
+val_metric: val/loss
+test_metric_space: original
+weather_loss: lat_weighted_mse
+
+# runtime
+task: weatherbench
+num_workers: 0
+pin_memory: null
+persistent_workers: null
+prefetch_factor: 2
+use_mmap: true
+shard_cache_size: 2
+data_root: dataset
+save_root: checkpoint
+devices: auto

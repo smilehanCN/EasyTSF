@@ -20,7 +20,7 @@ class BaseForecastTask(L.LightningModule):
         self.save_hyperparameters()
         self._setup_task_state()
         self.model = self._instantiate_registered_model(self._get_model_derived_args())
-        self.loss_function = nn.MSELoss()
+        self.loss_function = self._build_loss_function()
         self.test_mae = MeanAbsoluteError()
         self.test_mse = MeanSquaredError()
 
@@ -32,6 +32,9 @@ class BaseForecastTask(L.LightningModule):
 
     def _iter_standard_scalers(self) -> Iterable[StandardScaler]:
         return ()
+
+    def _build_loss_function(self):
+        return nn.MSELoss()
 
     def _instantiate_registered_model(self, derived_args=None):
         model_name = self.hparams.model

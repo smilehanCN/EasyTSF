@@ -24,7 +24,7 @@ def test_get_task_spec_returns_expected_metadata():
     weatherbench_spec = get_task_spec("weatherbench")
     assert weatherbench_spec.family == "grid_prediction"
     assert weatherbench_spec.report_group == "weatherbench"
-    assert weatherbench_spec.supported_models == ("WeatherBenchPersistence",)
+    assert weatherbench_spec.supported_models == ("WeatherBenchPersistence", "ARROW")
 
     grid_spec = get_task_spec("grid3d_forecasting")
     assert grid_spec.family == "grid_prediction"

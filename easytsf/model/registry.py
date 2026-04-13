@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .arrow import Model as ARROWModel
 from .itransformer import Model as iTransformerModel
 from .mixlinear import Model as MixLinearModel
 from .pcmlp import Model as PCMLPModel
@@ -13,6 +14,7 @@ from .weatherbench_persistence import Model as WeatherBenchPersistenceModel
 
 
 MODEL_REGISTRY = {
+    "ARROW": ARROWModel,
     "iTransformer": iTransformerModel,
     "MixLinear": MixLinearModel,
     "PCMLP": PCMLPModel,
