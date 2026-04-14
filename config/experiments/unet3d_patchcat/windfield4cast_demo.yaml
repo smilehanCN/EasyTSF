@@ -1,6 +1,7 @@
 # model
-model: unet3d
+model: unet3d_patchcat
 base_channels: 16
+input_embed_dim: 16
 patch_size: [4, 4, 2]
 downsample_scale: [2, 2, 2]
 kernel_size: [3, 3, 3]

@@ -47,6 +47,35 @@ def load_grid3d_step(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.ndarr
     return u, v, w, time_s
 
 
+def load_grid3d_tensor(
+    path: str | Path,
+    *,
+    expected_shape: tuple[int, int, int] | None = None,
+) -> tuple[np.ndarray, float]:
+    u, v, w, time_s = load_grid3d_step(path)
+    path = Path(path)
+
+    if u.shape != v.shape or u.shape != w.shape:
+        raise ValueError(
+            "inconsistent channel shapes in '{}': U={}, V={}, W={}".format(
+                path,
+                tuple(int(size) for size in u.shape),
+                tuple(int(size) for size in v.shape),
+                tuple(int(size) for size in w.shape),
+            )
+        )
+    if expected_shape is not None and u.shape != expected_shape:
+        raise ValueError(
+            "unexpected grid shape in '{}': expected {}, got {}".format(
+                path,
+                tuple(int(size) for size in expected_shape),
+                tuple(int(size) for size in u.shape),
+            )
+        )
+
+    return np.stack([u, v, w], axis=0).astype(np.float32, copy=False), time_s
+
+
 def load_grid3d_coords(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     with h5py.File(Path(path), "r") as handle:
         x = np.asarray(handle["x"][:], dtype=np.float32)
@@ -152,16 +181,18 @@ def infer_frequency_seconds(records: list[Grid3DRecord]) -> float | None:
     return float(positive_deltas[0])
 
 
-def _compute_channel_stats(records: list[Grid3DRecord]) -> tuple[np.ndarray, np.ndarray]:
+def _compute_channel_stats(
+    records: list[Grid3DRecord],
+    *,
+    expected_shape: tuple[int, int, int],
+) -> tuple[np.ndarray, np.ndarray]:
     channel_sums = np.zeros(3, dtype=np.float64)
     channel_sum_squares = np.zeros(3, dtype=np.float64)
     total_value_count = 0
 
     for record in records:
-        u, v, w, _ = load_grid3d_step(record.path)
-        if u.shape != expected_shape or v.shape != expected_shape or w.shape != expected_shape:
-            raise ValueError("unexpected grid shape in '{}'".format(record.path))
-        step = np.stack([u, v, w], axis=0).astype(np.float64, copy=False)
+        step, _ = load_grid3d_tensor(record.path, expected_shape=expected_shape)
+        step = step.astype(np.float64, copy=False)
         channel_sums += step.sum(axis=(1, 2, 3))
         channel_sum_squares += np.square(step).sum(axis=(1, 2, 3))
         total_value_count += step.shape[1] * step.shape[2] * step.shape[3]
@@ -204,11 +235,11 @@ def import_grid3d_dataset(
         )
 
     x, y, z = load_grid3d_coords(records[0].path)
-    sample_u, sample_v, sample_w, _ = load_grid3d_step(records[0].path)
-    expected_shape = sample_u.shape
+    sample_step, _ = load_grid3d_tensor(records[0].path)
+    expected_shape = tuple(int(size) for size in sample_step.shape[1:])
 
     train_start, train_end = normalized_split_spec["train"]
-    mean, std = _compute_channel_stats(records[train_start:train_end])
+    mean, std = _compute_channel_stats(records[train_start:train_end], expected_shape=expected_shape)
     mean_view = mean[:, None, None, None]
     std_view = std[:, None, None, None]
 
@@ -245,8 +276,7 @@ def import_grid3d_dataset(
         )
 
         for step_index, record in enumerate(split_records):
-            u, v, w, _ = load_grid3d_step(record.path)
-            step = np.stack([u, v, w], axis=0).astype(np.float32, copy=False)
+            step, _ = load_grid3d_tensor(record.path, expected_shape=expected_shape)
             normalized_step = (step - mean_view) / std_view
             split_data[step_index] = normalized_step.astype(np.float32, copy=False)
         split_data.flush()

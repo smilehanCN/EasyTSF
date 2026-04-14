@@ -75,7 +75,7 @@ python -m easytsf.workflow.experiment config/experiments/timebase/etth1.yaml
 将 WindField4Cast 风格原始目录导入为 Grid3D 逐时间步 cache：
 
 ```bash
-python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/windfield4cast_demo
+python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/WindFieldDemo
 ```
 
 运行维护中的 UNet3D Grid3D preset：

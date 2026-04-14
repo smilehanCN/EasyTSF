@@ -9,6 +9,7 @@ from easytsf.data import Grid3DDataModule
 from easytsf.data.grid3d_data_module import build_tile_bboxes, build_valid_crop_slices
 from easytsf.task import get_task_components
 from easytsf.task.grid3d_forecasting import Grid3DForecastingTask
+from easytsf.task.grid3d_risk_prediction import Grid3DRiskPredictionTask
 from scripts.grid3d_import import import_grid3d_dataset
 
 
@@ -49,9 +50,18 @@ def _build_raw_dataset(root: Path, num_steps: int = 64) -> Path:
     return root
 
 
-def _build_runtime_conf(dataset_root: Path, dataset_name: str, *, hist_len: int, pred_len: int, train_patch_shape) -> dict:
-    return {
-        "model": "UNet3D",
+def _build_runtime_conf(
+    dataset_root: Path,
+    dataset_name: str,
+    *,
+    hist_len: int,
+    pred_len: int,
+    train_patch_shape,
+    task: str = "grid3d_forecasting",
+    output_mode: str = "regression",
+) -> dict:
+    runtime_conf = {
+        "model": "unet3d",
         "dataset": dataset_name,
         "hist_len": hist_len,
         "pred_len": pred_len,
@@ -68,7 +78,8 @@ def _build_runtime_conf(dataset_root: Path, dataset_name: str, *, hist_len: int,
         "gradient_clip_val": 0.0,
         "gradient_clip_algorithm": "norm",
         "test_metric_space": "original",
-        "task": "grid3d_forecasting",
+        "task": task,
+        "output_mode": output_mode,
         "accelerator": "cpu",
         "devices": 1,
         "pin_memory": False,
@@ -88,6 +99,21 @@ def _build_runtime_conf(dataset_root: Path, dataset_name: str, *, hist_len: int,
         "save_root": str(dataset_root / "checkpoints"),
         "seed": 42,
     }
+    if task == "grid3d_risk_prediction":
+        runtime_conf.update(
+            {
+                "risk_bins": {
+                    "speed": [8.0, 16.0],
+                    "shear_x": [2.0, 5.0],
+                    "shear_y": [2.0, 5.0],
+                    "shear_z": [2.0, 5.0],
+                },
+                "risk_num_classes": 3,
+                "risk_num_heads": 4,
+                "head_loss_weights": [1.0, 1.0, 1.0, 1.0],
+            }
+        )
+    return runtime_conf
 
 
 def test_grid3d_importer_writes_split_arrays(tmp_path):
@@ -162,6 +188,105 @@ def test_grid3d_datamodule_and_task_forward(tmp_path):
     assert prediction.shape == (1, 1, 3, 32, 32, 16)
     assert isinstance(loss, torch.Tensor)
     assert torch.isfinite(loss)
+
+
+def test_grid3d_risk_task_forward_loss_and_metrics(tmp_path):
+    raw_dir = _build_raw_dataset(tmp_path / "raw")
+    dataset_dir = tmp_path / "grid3d_demo"
+    import_grid3d_dataset(input_dir=raw_dir, out_dir=dataset_dir, split_spec=TRAIN_SPLIT_SPEC)
+
+    runtime_conf = _build_runtime_conf(
+        tmp_path,
+        dataset_dir.name,
+        hist_len=5,
+        pred_len=1,
+        train_patch_shape=(32, 32, 16),
+        task="grid3d_risk_prediction",
+        output_mode="classification",
+    )
+    datamodule = Grid3DDataModule(**runtime_conf)
+    train_batch = next(iter(datamodule.train_dataloader()))
+    val_batch = next(iter(datamodule.val_dataloader()))
+
+    datamodule_cls, task_cls = get_task_components("grid3d_risk_prediction")
+    assert datamodule_cls is Grid3DDataModule
+    assert task_cls is Grid3DRiskPredictionTask
+
+    task = Grid3DRiskPredictionTask(**runtime_conf)
+    prediction, label = task._forward(train_batch)
+    loss = task.loss_function(prediction, label)
+    assert prediction.shape == (1, 1, 12, 32, 32, 16)
+    assert label.shape == (1, 1, 4, 32, 32, 16)
+    assert isinstance(loss, torch.Tensor)
+    assert torch.isfinite(loss)
+
+    val_loss = task.validation_step(val_batch, 0)
+    assert isinstance(val_loss, torch.Tensor)
+    assert torch.isfinite(val_loss)
+
+    task.on_test_epoch_start()
+    task.test_step(val_batch, 0)
+    assert int(task.test_confusion.sum().item()) > 0
+    macro_f1, high_risk_recall = task._compute_confusion_metrics(task.test_confusion)
+    assert torch.isfinite(macro_f1)
+    assert torch.isfinite(high_risk_recall)
+
+
+def test_grid3d_risk_label_construction_matches_expected_bins(tmp_path):
+    raw_dir = _build_raw_dataset(tmp_path / "raw")
+    dataset_dir = tmp_path / "grid3d_demo"
+    import_grid3d_dataset(input_dir=raw_dir, out_dir=dataset_dir, split_spec=TRAIN_SPLIT_SPEC)
+
+    runtime_conf = _build_runtime_conf(
+        tmp_path,
+        dataset_dir.name,
+        hist_len=5,
+        pred_len=1,
+        train_patch_shape=(32, 32, 16),
+        task="grid3d_risk_prediction",
+        output_mode="classification",
+    )
+    runtime_conf["risk_bins"] = {
+        "speed": [0.5, 1.5],
+        "shear_x": [0.5, 1.5],
+        "shear_y": [0.5, 1.5],
+        "shear_z": [0.5, 1.5],
+    }
+
+    task = Grid3DRiskPredictionTask(**runtime_conf)
+    task.scaler.set_stats(
+        torch.zeros((1, 1, 3, 1, 1, 1), dtype=torch.float32),
+        torch.ones((1, 1, 3, 1, 1, 1), dtype=torch.float32),
+    )
+
+    u_component = torch.tensor(
+        [[[[0.0], [1.0], [3.0]], [[0.0], [2.0], [2.0]]]],
+        dtype=torch.float32,
+    )
+    v_component = torch.zeros_like(u_component)
+    w_component = torch.zeros_like(u_component)
+    physical_targets = torch.stack([u_component, v_component, w_component], dim=2)
+    labels = task._build_risk_labels(physical_targets)
+
+    expected_shear_x = torch.tensor(
+        [[[[1], [2], [2]], [[2], [0], [0]]]],
+        dtype=torch.long,
+    ).unsqueeze(0)
+    expected_shear_y = torch.tensor(
+        [[[[0], [1], [1]], [[0], [1], [1]]]],
+        dtype=torch.long,
+    ).unsqueeze(0)
+    expected_shear_z = torch.zeros((1, 1, 2, 3, 1), dtype=torch.long)
+    expected_speed = torch.tensor(
+        [[[[0], [1], [2]], [[0], [2], [2]]]],
+        dtype=torch.long,
+    ).unsqueeze(0)
+
+    assert labels.shape == (1, 1, 4, 2, 3, 1)
+    assert torch.equal(labels[:, :, 0, ...], expected_shear_x)
+    assert torch.equal(labels[:, :, 1, ...], expected_shear_y)
+    assert torch.equal(labels[:, :, 2, ...], expected_shear_z)
+    assert torch.equal(labels[:, :, 3, ...], expected_speed)
 
 
 def test_grid3d_full_size_train_path(tmp_path):

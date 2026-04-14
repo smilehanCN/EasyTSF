@@ -77,7 +77,7 @@ python -m easytsf.workflow.experiment config/experiments/arrow/weatherbench.yaml
 Import a WindField4Cast-style raw directory into the Grid3D per-step cache layout:
 
 ```bash
-python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/windfield4cast_demo
+python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/WindFieldDemo
 ```
 
 Run the maintained UNet3D Grid3D preset:

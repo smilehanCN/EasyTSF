@@ -6,6 +6,7 @@ from easytsf.data import Grid3DDataModule, MTSDataModule, WeatherDataModule
 from easytsf.model import MODEL_REGISTRY
 
 from .grid3d_forecasting import Grid3DForecastingTask
+from .grid3d_risk_prediction import Grid3DRiskPredictionTask
 from .mtsf import MTSFTask
 from .weatherbench import WeatherBenchTask
 
@@ -34,10 +35,32 @@ TASK_SPECS = {
         report_group="grid3d_forecasting",
         datamodule_cls=Grid3DDataModule,
         task_cls=Grid3DForecastingTask,
-        supported_models=("UNet3D",),
+        supported_models=(
+            "unet3d",
+            "unet3d_patchcat",
+            "patchstg_flat3d",
+            "fredn_multivariate3d",
+        ),
         metric_schema=MetricSchema(
             val_metrics=("val/loss",),
             test_metrics=("test/mae", "test/mse"),
+        ),
+    ),
+    "grid3d_risk_prediction": TaskSpec(
+        name="grid3d_risk_prediction",
+        family="grid_prediction",
+        report_group="grid3d_risk_prediction",
+        datamodule_cls=Grid3DDataModule,
+        task_cls=Grid3DRiskPredictionTask,
+        supported_models=(
+            "unet3d",
+            "unet3d_patchcat",
+            "patchstg_flat3d",
+            "fredn_multivariate3d",
+        ),
+        metric_schema=MetricSchema(
+            val_metrics=("val/loss",),
+            test_metrics=("test/macro_f1", "test/high_risk_recall"),
         ),
     ),
     "mtsf": TaskSpec(

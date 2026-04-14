@@ -1,11 +1,15 @@
 # model
-model: unet3d
-base_channels: 16
-patch_size: [4, 4, 2]
-downsample_scale: [2, 2, 2]
-kernel_size: [3, 3, 3]
-expansion: 2
+model: patchstg_flat3d
+in_channels: 3
+coord_channels: 3
+patch_size_3d: [4, 4, 4]
+embed_dim: 64
+depth: 2
+num_heads: 4
+mlp_ratio: 2.0
+dropout: 0.1
 use_coords: true
+spatial_downsample_factor_3d: [4, 4, 4]
 
 # data
 dataset: WindFieldDemo

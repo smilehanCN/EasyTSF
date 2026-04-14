@@ -11,7 +11,7 @@ def test_load_benchmark_runs_preflight_before_any_tune_execution(tmp_path):
     benchmark_path = tmp_path / "invalid_benchmark.py"
 
     experiment_conf = {
-        "model": "UNet3D",
+        "model": "unet3d",
         "task": "mtsf",
         "val_metric": "val/loss",
         "dataset": "dummy_dataset",

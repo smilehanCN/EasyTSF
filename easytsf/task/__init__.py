@@ -1,5 +1,6 @@
 from .base import BaseForecastTask
 from .grid3d_forecasting import Grid3DForecastingTask
+from .grid3d_risk_prediction import Grid3DRiskPredictionTask
 from .mtsf import MTSFTask
 from .weatherbench import WeatherBenchTask
 from .registry import TASK_SPECS, MetricSchema, TaskSpec, get_task_components, get_task_spec, validate_task_runtime_conf
@@ -7,6 +8,7 @@ from .registry import TASK_SPECS, MetricSchema, TaskSpec, get_task_components, g
 __all__ = [
     "BaseForecastTask",
     "Grid3DForecastingTask",
+    "Grid3DRiskPredictionTask",
     "MTSFTask",
     "MetricSchema",
     "WeatherBenchTask",

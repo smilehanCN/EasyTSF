@@ -30,7 +30,7 @@ def test_validate_task_runtime_conf_accepts_pcmlp_for_mtsf():
 def test_validate_task_runtime_conf_rejects_invalid_model_for_task():
     runtime_conf = {
         "task": "mtsf",
-        "model": "UNet3D",
+        "model": "unet3d",
         "val_metric": "val/loss",
     }
 

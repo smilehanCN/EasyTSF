@@ -27,6 +27,7 @@ class Grid3DForecastingTask(BaseForecastTask):
     def _get_model_derived_args(self):
         return {
             "hist_len": int(self.hparams.hist_len),
+            "history_len": int(self.hparams.hist_len),
             "pred_len": int(self.hparams.pred_len),
             "in_channels": len(self.channel_names),
             "coord_channels": 3,
