@@ -13,6 +13,20 @@ def _as_tuple3(value: object, field_name: str) -> tuple[int, int, int]:
     raise ValueError(f"Expected {field_name} to be a length-3 tuple/list, got {value!r}")
 
 
+def _as_downsample_scales(
+    value: object | None,
+    fallback: tuple[int, int, int],
+) -> tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]]:
+    if value is None:
+        return (fallback, fallback, fallback)
+    if isinstance(value, (list, tuple)) and len(value) == 3:
+        return tuple(
+            _as_tuple3(scale, "downsample_scales[{}]".format(index))
+            for index, scale in enumerate(value)
+        )
+    raise ValueError(f"Expected downsample_scales to contain three length-3 scales, got {value!r}")
+
+
 @dataclass
 class UNet3DModelConfig:
     model_name: str = "unet3d"
@@ -21,6 +35,7 @@ class UNet3DModelConfig:
     base_channels: int = 16
     patch_size: tuple[int, int, int] = (4, 4, 2)
     downsample_scale: tuple[int, int, int] = (2, 2, 2)
+    downsample_scales: tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]] | None = None
     kernel_size: tuple[int, int, int] = (3, 3, 3)
     expansion: int = 2
     output_mode: str = "regression"
@@ -34,6 +49,11 @@ class UNet3DModelConfig:
         for key in ("patch_size", "downsample_scale", "kernel_size"):
             if key in values:
                 values[key] = _as_tuple3(values[key], key)
+        if "downsample_scales" in values:
+            values["downsample_scales"] = _as_downsample_scales(
+                values["downsample_scales"],
+                values.get("downsample_scale", cls.downsample_scale),
+            )
         return cls(**{name: values[name] for name in cls.__dataclass_fields__ if name in values})
 
 
@@ -177,6 +197,7 @@ class Model(nn.Module):
         base_channels: int = 16,
         patch_size: tuple[int, int, int] = (4, 4, 2),
         downsample_scale: tuple[int, int, int] = (2, 2, 2),
+        downsample_scales: tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]] | None = None,
         kernel_size: tuple[int, int, int] = (3, 3, 3),
         expansion: int = 2,
         output_mode: str = "regression",
@@ -188,6 +209,7 @@ class Model(nn.Module):
         self.pred_len = pred_len
         self.in_channels = in_channels
         self.patch_size = patch_size
+        self.downsample_scales = _as_downsample_scales(downsample_scales, downsample_scale)
         self.output_mode = str(output_mode)
         self.risk_num_classes = int(risk_num_classes)
         self.risk_num_heads = int(risk_num_heads)
@@ -203,18 +225,18 @@ class Model(nn.Module):
 
         self.patch_embed = PatchEmbed3D(total_in_channels, base_channels, patch_size)
         self.enc1 = DSConvBlock3D(base_channels, kernel_size=kernel_size, expansion=expansion)
-        self.down1 = Downsample3D(base_channels, base_channels * 2, downsample_scale)
+        self.down1 = Downsample3D(base_channels, base_channels * 2, self.downsample_scales[0])
         self.enc2 = DSConvBlock3D(base_channels * 2, kernel_size=kernel_size, expansion=expansion)
-        self.down2 = Downsample3D(base_channels * 2, base_channels * 4, downsample_scale)
+        self.down2 = Downsample3D(base_channels * 2, base_channels * 4, self.downsample_scales[1])
         self.enc3 = DSConvBlock3D(base_channels * 4, kernel_size=kernel_size, expansion=expansion)
-        self.down3 = Downsample3D(base_channels * 4, base_channels * 8, downsample_scale)
+        self.down3 = Downsample3D(base_channels * 4, base_channels * 8, self.downsample_scales[2])
         self.bottleneck = DSConvBlock3D(base_channels * 8, kernel_size=kernel_size, expansion=expansion)
 
         self.up3 = UpsampleAdd3D(
             base_channels * 8,
             base_channels * 4,
             base_channels * 4,
-            downsample_scale,
+            self.downsample_scales[2],
             kernel_size=kernel_size,
             expansion=expansion,
         )
@@ -222,7 +244,7 @@ class Model(nn.Module):
             base_channels * 4,
             base_channels * 2,
             base_channels * 2,
-            downsample_scale,
+            self.downsample_scales[1],
             kernel_size=kernel_size,
             expansion=expansion,
         )
@@ -230,7 +252,7 @@ class Model(nn.Module):
             base_channels * 2,
             base_channels,
             base_channels,
-            downsample_scale,
+            self.downsample_scales[0],
             kernel_size=kernel_size,
             expansion=expansion,
         )

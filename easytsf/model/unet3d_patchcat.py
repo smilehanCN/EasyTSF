@@ -5,7 +5,14 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from .unet3d_wf4cast import DSConvBlock3D, Downsample3D, PatchEmbed3D, UpsampleAdd3D, _as_tuple3
+from .unet3d_wf4cast import (
+    DSConvBlock3D,
+    Downsample3D,
+    PatchEmbed3D,
+    UpsampleAdd3D,
+    _as_downsample_scales,
+    _as_tuple3,
+)
 
 
 _WIND_COMPONENTS = ("u", "v", "w")
@@ -19,6 +26,7 @@ class UNet3DPatchCatModelConfig:
     base_channels: int = 16
     patch_size: tuple[int, int, int] = (4, 4, 2)
     downsample_scale: tuple[int, int, int] = (2, 2, 2)
+    downsample_scales: tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]] | None = None
     kernel_size: tuple[int, int, int] = (3, 3, 3)
     expansion: int = 2
     input_embed_dim: int | None = None
@@ -34,6 +42,11 @@ class UNet3DPatchCatModelConfig:
         for key in ("patch_size", "downsample_scale", "kernel_size"):
             if key in values:
                 values[key] = _as_tuple3(values[key], key)
+        if "downsample_scales" in values:
+            values["downsample_scales"] = _as_downsample_scales(
+                values["downsample_scales"],
+                values.get("downsample_scale", cls.downsample_scale),
+            )
         return cls(**{name: values[name] for name in cls.__dataclass_fields__ if name in values})
 
 
@@ -111,6 +124,7 @@ class Model(nn.Module):
         base_channels: int = 16,
         patch_size: tuple[int, int, int] = (4, 4, 2),
         downsample_scale: tuple[int, int, int] = (2, 2, 2),
+        downsample_scales: tuple[tuple[int, int, int], tuple[int, int, int], tuple[int, int, int]] | None = None,
         kernel_size: tuple[int, int, int] = (3, 3, 3),
         expansion: int = 2,
         input_embed_dim: int | None = None,
@@ -126,6 +140,7 @@ class Model(nn.Module):
         self.coord_channels = coord_channels
         self.patch_size = patch_size
         self.use_coords = use_coords
+        self.downsample_scales = _as_downsample_scales(downsample_scales, downsample_scale)
         self.input_embed_dim = base_channels if input_embed_dim is None else int(input_embed_dim)
         self.output_mode = str(output_mode)
         self.risk_num_classes = int(risk_num_classes)
@@ -145,18 +160,18 @@ class Model(nn.Module):
         self.input_embed = PatchCatInputEmbedding(history_len=history_len, embed_dim=self.input_embed_dim, in_channels=in_channels)
         self.patch_embed = PatchEmbed3D(total_in_channels, base_channels, patch_size)
         self.enc1 = DSConvBlock3D(base_channels, kernel_size=kernel_size, expansion=expansion)
-        self.down1 = Downsample3D(base_channels, base_channels * 2, downsample_scale)
+        self.down1 = Downsample3D(base_channels, base_channels * 2, self.downsample_scales[0])
         self.enc2 = DSConvBlock3D(base_channels * 2, kernel_size=kernel_size, expansion=expansion)
-        self.down2 = Downsample3D(base_channels * 2, base_channels * 4, downsample_scale)
+        self.down2 = Downsample3D(base_channels * 2, base_channels * 4, self.downsample_scales[1])
         self.enc3 = DSConvBlock3D(base_channels * 4, kernel_size=kernel_size, expansion=expansion)
-        self.down3 = Downsample3D(base_channels * 4, base_channels * 8, downsample_scale)
+        self.down3 = Downsample3D(base_channels * 4, base_channels * 8, self.downsample_scales[2])
         self.bottleneck = DSConvBlock3D(base_channels * 8, kernel_size=kernel_size, expansion=expansion)
 
         self.up3 = UpsampleAdd3D(
             base_channels * 8,
             base_channels * 4,
             base_channels * 4,
-            downsample_scale,
+            self.downsample_scales[2],
             kernel_size=kernel_size,
             expansion=expansion,
         )
@@ -164,7 +179,7 @@ class Model(nn.Module):
             base_channels * 4,
             base_channels * 2,
             base_channels * 2,
-            downsample_scale,
+            self.downsample_scales[1],
             kernel_size=kernel_size,
             expansion=expansion,
         )
@@ -172,7 +187,7 @@ class Model(nn.Module):
             base_channels * 2,
             base_channels,
             base_channels,
-            downsample_scale,
+            self.downsample_scales[0],
             kernel_size=kernel_size,
             expansion=expansion,
         )

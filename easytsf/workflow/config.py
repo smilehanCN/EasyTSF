@@ -94,6 +94,7 @@ def finalize_runtime_conf(base_conf, overrides=None):
 
     conf["devices"] = parse_devices(conf.get("devices", "auto"))
     conf["accelerator"] = conf.get("accelerator", "auto")
+    conf["val_metric_mode"] = str(conf.get("val_metric_mode", "min"))
     conf["conf_hash"] = cal_conf_hash(conf, hash_len=10)
     if not conf.get("exp_dir"):
         exp_root = Path(conf["save_root"]) / "{}_{}".format(conf["model"], conf["dataset"])

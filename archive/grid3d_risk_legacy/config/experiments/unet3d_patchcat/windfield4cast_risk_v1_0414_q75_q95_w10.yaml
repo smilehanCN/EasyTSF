@@ -1,0 +1,60 @@
+# model
+model: unet3d_patchcat
+output_mode: classification
+risk_num_classes: 3
+risk_num_heads: 4
+base_channels: 16
+input_embed_dim: 16
+patch_size: [4, 4, 2]
+downsample_scale: [2, 2, 2]
+downsample_scales:
+  - [2, 2, 2]
+  - [2, 2, 2]
+  - [1, 1, 1]
+kernel_size: [3, 3, 3]
+expansion: 2
+use_coords: true
+
+# data
+dataset: WindFieldV1_0414
+hist_len: 5
+pred_len: 1
+train_patch_shape: [160, 160, 80]
+eval_tile_shape: [160, 160, 80]
+eval_tile_overlap: [32, 32, 16]
+risk_bins:
+  speed: [5.533, 5.983]
+  shear_x: [0.269, 0.464]
+  shear_y: [0.123, 0.210]
+  shear_z: [0.326, 0.563]
+
+# train
+seed: 42
+batch_size: 6
+max_epochs: 30
+lr: 0.0001
+lr_scheduler: StepLR
+lr_step_size: 1
+lr_gamma: 1.0
+es_patience: 30
+optimizer: Adam
+gradient_clip_val: 0.0
+gradient_clip_algorithm: norm
+val_metric: val/loss
+head_loss_weights: [1.0, 1.0, 1.0, 1.0]
+risk_class_weights: [1.0, 3.0, 10.0]
+
+# runtime
+task: grid3d_risk_prediction
+num_workers: 2
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+use_mmap: true
+data_root: dataset
+save_root: checkpoint/grid3d_risk_v1_0414_q75_q95_w10
+accelerator: gpu
+devices: 4
+strategy: ddp_find_unused_parameters_true
+check_val_every_n_epoch: 5
+num_sanity_val_steps: 0

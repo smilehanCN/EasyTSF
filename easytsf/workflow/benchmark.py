@@ -86,7 +86,8 @@ def run_benchmark(benchmark_ref, resume=True, verbose=False):
             ray.init()
 
     metric = base_conf["val_metric"]
-    reporter = _build_tune_reporter(param_space, metric, "min") if verbose else None
+    metric_mode = base_conf.get("val_metric_mode", "min")
+    reporter = _build_tune_reporter(param_space, metric, metric_mode) if verbose else None
     trainable = tune.with_parameters(_tune_train_func, base_conf=base_conf, verbose=verbose)
     trainable = tune.with_resources(
         trainable,
@@ -108,7 +109,7 @@ def run_benchmark(benchmark_ref, resume=True, verbose=False):
             param_space=param_space,
             tune_config=tune.TuneConfig(
                 metric=metric,
-                mode="min",
+                mode=metric_mode,
                 scheduler=FIFOScheduler(),
                 num_samples=search_config["num_samples"],
             ),

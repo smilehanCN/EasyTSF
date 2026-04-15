@@ -60,6 +60,30 @@ def test_validate_task_runtime_conf_rejects_invalid_val_metric():
         validate_task_runtime_conf(runtime_conf)
 
 
+def test_validate_task_runtime_conf_accepts_risk_macro_f1_and_max_mode():
+    runtime_conf = {
+        "task": "grid3d_risk_prediction",
+        "model": "unet3d",
+        "val_metric": "val/macro_f1",
+        "val_metric_mode": "max",
+    }
+
+    task_spec = validate_task_runtime_conf(runtime_conf)
+    assert task_spec == get_task_spec("grid3d_risk_prediction")
+
+
+def test_validate_task_runtime_conf_rejects_invalid_val_metric_mode():
+    runtime_conf = {
+        "task": "grid3d_risk_prediction",
+        "model": "unet3d",
+        "val_metric": "val/macro_f1",
+        "val_metric_mode": "largest",
+    }
+
+    with pytest.raises(ValueError, match="val_metric_mode"):
+        validate_task_runtime_conf(runtime_conf)
+
+
 def test_base_forecast_task_lets_model_constructor_report_missing_args(monkeypatch):
     class DummyModel(nn.Module):
         def __init__(self, required_arg):

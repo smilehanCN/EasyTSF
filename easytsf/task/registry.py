@@ -59,7 +59,7 @@ TASK_SPECS = {
             "fredn_multivariate3d",
         ),
         metric_schema=MetricSchema(
-            val_metrics=("val/loss",),
+            val_metrics=("val/loss", "val/macro_f1", "val/high_risk_recall"),
             test_metrics=("test/macro_f1", "test/high_risk_recall"),
         ),
     ),
@@ -142,4 +142,7 @@ def validate_task_runtime_conf(runtime_conf, task_spec: TaskSpec | None = None) 
                 list(task_spec.metric_schema.val_metrics),
             )
         )
+    val_metric_mode = runtime_conf.get("val_metric_mode", "min")
+    if val_metric_mode not in {"min", "max"}:
+        raise ValueError("val_metric_mode '{}' is invalid; expected 'min' or 'max'".format(val_metric_mode))
     return task_spec

@@ -84,6 +84,27 @@ def load_grid3d_coords(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.nda
     return x, y, z
 
 
+def infer_axis_spacing(axis_values: np.ndarray, axis_name: str) -> float:
+    values = np.asarray(axis_values, dtype=np.float64)
+    if values.ndim != 1:
+        raise ValueError("axis '{}' must be 1D, got shape {}".format(axis_name, tuple(int(size) for size in values.shape)))
+    if values.size <= 1:
+        return 1.0
+
+    deltas = np.diff(values)
+    if np.any(deltas <= 0.0):
+        raise ValueError("axis '{}' must be strictly increasing".format(axis_name))
+    if not np.allclose(deltas, deltas[0], rtol=1e-5, atol=1e-6):
+        raise ValueError(
+            "axis '{}' must be evenly spaced, got min_delta={} and max_delta={}".format(
+                axis_name,
+                float(deltas.min()),
+                float(deltas.max()),
+            )
+        )
+    return float(deltas[0])
+
+
 def build_records(input_dir: str | Path, pattern: str) -> list[Grid3DRecord]:
     dataset_dir = Path(input_dir).expanduser().resolve()
     records = []
@@ -235,6 +256,9 @@ def import_grid3d_dataset(
         )
 
     x, y, z = load_grid3d_coords(records[0].path)
+    dy_m = infer_axis_spacing(y, "y")
+    dx_m = infer_axis_spacing(x, "x")
+    dz_m = infer_axis_spacing(z, "z")
     sample_step, _ = load_grid3d_tensor(records[0].path)
     expected_shape = tuple(int(size) for size in sample_step.shape[1:])
 
@@ -259,6 +283,12 @@ def import_grid3d_dataset(
         indexing="ij",
     )
     np.save(dataset_dir / "coord.npy", np.stack([yy, xx, zz], axis=0).astype(np.float32, copy=False))
+    np.savez(
+        dataset_dir / "axes.npz",
+        x=np.asarray(x, dtype=np.float32),
+        y=np.asarray(y, dtype=np.float32),
+        z=np.asarray(z, dtype=np.float32),
+    )
     np.savez(dataset_dir / "stats.npz", mean=mean, std=std)
 
     split_lengths = {}
@@ -290,6 +320,10 @@ def import_grid3d_dataset(
         "channel_names": ["U", "V", "W"],
         "storage_dtype": "float32",
         "frequency_seconds": infer_frequency_seconds(records),
+        "grid_spacing_m": [float(dy_m), float(dx_m), float(dz_m)],
+        "axis_layout": ["y", "x", "z"],
+        "coord_min": [float(y[0]), float(x[0]), float(z[0])],
+        "coord_max": [float(y[-1]), float(x[-1]), float(z[-1])],
         "split_lengths": split_lengths,
         "max_supported_hist_len": 10,
         "max_supported_pred_len": 10,

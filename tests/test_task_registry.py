@@ -46,7 +46,7 @@ def test_get_task_spec_returns_expected_metadata():
         "patchstg_flat3d",
         "fredn_multivariate3d",
     )
-    assert risk_spec.metric_schema.val_metrics == ("val/loss",)
+    assert risk_spec.metric_schema.val_metrics == ("val/loss", "val/macro_f1", "val/high_risk_recall")
     assert risk_spec.metric_schema.test_metrics == ("test/macro_f1", "test/high_risk_recall")
 
 
