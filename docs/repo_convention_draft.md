@@ -103,6 +103,7 @@ experiment preset 应自包含完整 recipe，并显式声明任务归属。当�
 - `val_timestamps.npy`
 - `test_timestamps.npy`
 - `meta.json`
+- optional: `stats.npz`
 
 其中：
 
@@ -110,5 +111,9 @@ experiment preset 应自包含完整 recipe，并显式声明任务归属。当�
 - 单变量预测也写成 `[L, 1]`
 - 三个 split 都必须提供时间戳文件
 - `meta.json` 需要提供频率和 `timestamps_description`
+- `meta.json` 可选提供 `data_is_standardized`
+  - 为 `true` 时，`*_data.npy` 表示已经标准化后的存储，此时必须提供 `stats.npz`
+  - 缺失或为 `false` 时，运行时始终把 `*_data.npy` 当作 raw data，并从 `train_data.npy` 拟合 scaler
+- `stats.npz` 不会单独改变缩放策略；只有显式 `data_is_standardized: true` 才会启用
 
 对 graph 和 grid prediction，不要默认沿用 sequence 数据契约。它们需要额外的 topology、mask、坐标或 side input 时，必须作为任务契约的一部分显式写出，而不是放进隐含兼容逻辑。

@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from easytsf.data import Grid3DDataModule, MTSDataModule, WeatherDataModule
+from easytsf.data import Grid3DDataModule, MTSDataModule
 from easytsf.model import MODEL_REGISTRY
 
 from .grid3d_forecasting import Grid3DForecastingTask
-from .grid3d_risk_prediction import Grid3DRiskPredictionTask
 from .mtsf import MTSFTask
-from .weatherbench import WeatherBenchTask
 
 
 @dataclass(frozen=True)
@@ -37,30 +35,16 @@ TASK_SPECS = {
         task_cls=Grid3DForecastingTask,
         supported_models=(
             "unet3d",
+            "unet3d_engram",
             "unet3d_patchcat",
             "patchstg_flat3d",
             "fredn_multivariate3d",
+            "fno3d",
+            "afno3d",
         ),
         metric_schema=MetricSchema(
             val_metrics=("val/loss",),
             test_metrics=("test/mae", "test/mse"),
-        ),
-    ),
-    "grid3d_risk_prediction": TaskSpec(
-        name="grid3d_risk_prediction",
-        family="grid_prediction",
-        report_group="grid3d_risk_prediction",
-        datamodule_cls=Grid3DDataModule,
-        task_cls=Grid3DRiskPredictionTask,
-        supported_models=(
-            "unet3d",
-            "unet3d_patchcat",
-            "patchstg_flat3d",
-            "fredn_multivariate3d",
-        ),
-        metric_schema=MetricSchema(
-            val_metrics=("val/loss", "val/macro_f1", "val/high_risk_recall"),
-            test_metrics=("test/macro_f1", "test/high_risk_recall"),
         ),
     ),
     "mtsf": TaskSpec(
@@ -70,18 +54,6 @@ TASK_SPECS = {
         datamodule_cls=MTSDataModule,
         task_cls=MTSFTask,
         supported_models=("iTransformer", "MixLinear", "PCMLP", "TQNet", "STID", "SparseTSF", "TimeBase"),
-        metric_schema=MetricSchema(
-            val_metrics=("val/loss",),
-            test_metrics=("test/mae", "test/mse"),
-        ),
-    ),
-    "weatherbench": TaskSpec(
-        name="weatherbench",
-        family="grid_prediction",
-        report_group="weatherbench",
-        datamodule_cls=WeatherDataModule,
-        task_cls=WeatherBenchTask,
-        supported_models=("WeatherBenchPersistence", "ARROW"),
         metric_schema=MetricSchema(
             val_metrics=("val/loss",),
             test_metrics=("test/mae", "test/mse"),

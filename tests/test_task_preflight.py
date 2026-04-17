@@ -7,13 +7,13 @@ from easytsf.task.base import BaseForecastTask
 
 def test_validate_task_runtime_conf_accepts_valid_pair():
     runtime_conf = {
-        "task": "weatherbench",
-        "model": "WeatherBenchPersistence",
+        "task": "grid3d_forecasting",
+        "model": "unet3d",
         "val_metric": "val/loss",
     }
 
     task_spec = validate_task_runtime_conf(runtime_conf)
-    assert task_spec == get_task_spec("weatherbench")
+    assert task_spec == get_task_spec("grid3d_forecasting")
 
 
 def test_validate_task_runtime_conf_accepts_pcmlp_for_mtsf():
@@ -51,8 +51,8 @@ def test_validate_task_runtime_conf_rejects_stgcn_without_graph_task_support():
 
 def test_validate_task_runtime_conf_rejects_invalid_val_metric():
     runtime_conf = {
-        "task": "weatherbench",
-        "model": "WeatherBenchPersistence",
+        "task": "grid3d_forecasting",
+        "model": "unet3d",
         "val_metric": "val/mae",
     }
 
@@ -60,23 +60,23 @@ def test_validate_task_runtime_conf_rejects_invalid_val_metric():
         validate_task_runtime_conf(runtime_conf)
 
 
-def test_validate_task_runtime_conf_accepts_risk_macro_f1_and_max_mode():
+def test_validate_task_runtime_conf_accepts_grid3d_forecasting_with_max_mode():
     runtime_conf = {
-        "task": "grid3d_risk_prediction",
+        "task": "grid3d_forecasting",
         "model": "unet3d",
-        "val_metric": "val/macro_f1",
+        "val_metric": "val/loss",
         "val_metric_mode": "max",
     }
 
     task_spec = validate_task_runtime_conf(runtime_conf)
-    assert task_spec == get_task_spec("grid3d_risk_prediction")
+    assert task_spec == get_task_spec("grid3d_forecasting")
 
 
 def test_validate_task_runtime_conf_rejects_invalid_val_metric_mode():
     runtime_conf = {
-        "task": "grid3d_risk_prediction",
+        "task": "grid3d_forecasting",
         "model": "unet3d",
-        "val_metric": "val/macro_f1",
+        "val_metric": "val/loss",
         "val_metric_mode": "largest",
     }
 

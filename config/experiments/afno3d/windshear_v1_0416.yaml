@@ -1,0 +1,57 @@
+# model
+model: afno3d
+patch_size: [7, 7, 2]
+afno_embed_dim: 64
+afno_depth: 4
+afno_num_blocks: 8
+afno_hidden_size_factor: 1
+afno_mlp_ratio: 4.0
+afno_dropout: 0.0
+afno_drop_path_rate: 0.0
+afno_sparsity_threshold: 0.01
+afno_hard_thresholding_fraction: 1.0
+afno_double_skip: true
+use_coords: true
+
+# data
+dataset: WindShear_V1_0416
+hist_len: 5
+pred_len: 1
+grid_spacing_m: [10.0, 10.0, 10.0]
+
+# shear-first objective
+flow_loss_type: smooth_l1
+shear_loss_type: smooth_l1
+shear_loss_weight: 0.5
+extreme_loss_weight: 0.5
+shear_extreme_thresholds: [0.05, 0.05, 0.05]
+
+# train
+seed: 42
+batch_size: 2
+max_epochs: 30
+lr: 0.0001
+lr_scheduler: StepLR
+lr_step_size: 1
+lr_gamma: 1.0
+es_patience: 30
+optimizer: Adam
+gradient_clip_val: 0.0
+gradient_clip_algorithm: norm
+val_metric: val/loss
+test_metric_space: shear
+
+# runtime
+task: grid3d_forecasting
+num_workers: 2
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+use_mmap: true
+data_root: dataset
+save_root: checkpoint/windshear_v1_0416_afno3d
+accelerator: gpu
+devices: 1
+strategy: auto
+check_val_every_n_epoch: 5
+num_sanity_val_steps: 0

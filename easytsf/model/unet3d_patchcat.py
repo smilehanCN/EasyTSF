@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import torch
 from torch import nn
 
-from .unet3d_wf4cast import (
+from .unet3d import (
     DSConvBlock3D,
     Downsample3D,
     PatchEmbed3D,

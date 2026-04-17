@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from .afno3d import Model as AFNO3DModel
 from .arrow import Model as ARROWModel
+from .fno3d import Model as FNO3DModel
 from .fredn import Model as FreDNMultivariate3DModel
 from .itransformer import Model as iTransformerModel
 from .mixlinear import Model as MixLinearModel
@@ -11,13 +13,15 @@ from .stid import Model as STIDModel
 from .stgcn import Model as STGCNModel
 from .timebase import Model as TimeBaseModel
 from .tqnet import Model as TQNetModel
+from .unet3d import Model as UNet3DModel
+from .unet3d_engram import Model as UNet3DEngramModel
 from .unet3d_patchcat import Model as UNet3DPatchCatModel
-from .unet3d_wf4cast import Model as UNet3DModel
-from .weatherbench_persistence import Model as WeatherBenchPersistenceModel
 
 
 MODEL_REGISTRY = {
     "ARROW": ARROWModel,
+    "afno3d": AFNO3DModel,
+    "fno3d": FNO3DModel,
     "iTransformer": iTransformerModel,
     "MixLinear": MixLinearModel,
     "PCMLP": PCMLPModel,
@@ -26,8 +30,8 @@ MODEL_REGISTRY = {
     "STID": STIDModel,
     "SparseTSF": SparseTSFModel,
     "TimeBase": TimeBaseModel,
-    "WeatherBenchPersistence": WeatherBenchPersistenceModel,
     "unet3d": UNet3DModel,
+    "unet3d_engram": UNet3DEngramModel,
     "unet3d_patchcat": UNet3DPatchCatModel,
     "patchstg_flat3d": PatchSTGFlat3DModel,
     "fredn_multivariate3d": FreDNMultivariate3DModel,

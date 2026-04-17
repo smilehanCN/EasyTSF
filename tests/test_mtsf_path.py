@@ -14,6 +14,21 @@ def _write_split(dataset_dir: Path, split: str, values: np.ndarray, timestamps: 
     np.save(dataset_dir / "{}_timestamps.npy".format(split), timestamps.astype(np.float32, copy=False))
 
 
+def _write_meta(dataset_dir: Path, *, data_is_standardized: bool | None = None) -> None:
+    meta = {
+        "timestamps_description": ["time of day"],
+        "frequency (minutes)": 60,
+    }
+    if data_is_standardized is not None:
+        meta["data_is_standardized"] = bool(data_is_standardized)
+    with (dataset_dir / "meta.json").open("w", encoding="utf-8") as handle:
+        json.dump(meta, handle, ensure_ascii=True)
+
+
+def _write_stats(dataset_dir: Path, mean: np.ndarray, std: np.ndarray) -> None:
+    np.savez(dataset_dir / "stats.npz", mean=np.asarray(mean, dtype=np.float32), std=np.asarray(std, dtype=np.float32))
+
+
 def _build_runtime_conf(dataset_root: Path, dataset_name: str) -> dict:
     return {
         "model": "SparseTSF",
@@ -54,16 +69,7 @@ def test_mtsf_datamodule_and_task_forward(tmp_path):
     dataset_dir = tmp_path / "mtsf_tiny"
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
-    with (dataset_dir / "meta.json").open("w", encoding="utf-8") as handle:
-        json.dump(
-            {
-                "timestamps_description": ["time of day"],
-                "frequency (minutes)": 60,
-            },
-            handle,
-            ensure_ascii=True,
-        )
-
+    _write_meta(dataset_dir)
     train_data = np.arange(36, dtype=np.float32).reshape(12, 3)
     val_data = np.arange(24, dtype=np.float32).reshape(8, 3) + 100.0
     test_data = np.arange(24, dtype=np.float32).reshape(8, 3) + 200.0
@@ -91,8 +97,75 @@ def test_mtsf_datamodule_and_task_forward(tmp_path):
     task = MTSFTask(**runtime_conf)
     prediction, label = task._forward(train_batch)
     loss = task.loss_function(prediction, label)
+    expected_mean = torch.as_tensor(train_data.mean(axis=0, keepdims=True), dtype=torch.float32)
+    expected_std = torch.as_tensor(train_data.std(axis=0, keepdims=True), dtype=torch.float32)
 
     assert prediction.shape == (2, 2, 3)
     assert label.shape == (2, 2, 3)
     assert isinstance(loss, torch.Tensor)
     assert torch.isfinite(loss)
+    assert task.scaler_policy.data_is_standardized is False
+    assert torch.allclose(task.scaler.mean, expected_mean)
+    assert torch.allclose(task.scaler.std, expected_std)
+
+
+def test_mtsf_ignores_stats_without_standardized_flag(tmp_path):
+    dataset_dir = tmp_path / "mtsf_tiny"
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+
+    _write_meta(dataset_dir)
+    train_data = np.arange(36, dtype=np.float32).reshape(12, 3)
+    val_data = np.arange(24, dtype=np.float32).reshape(8, 3) + 100.0
+    test_data = np.arange(24, dtype=np.float32).reshape(8, 3) + 200.0
+    train_timestamps = (np.arange(12, dtype=np.float32) % 24).reshape(-1, 1)
+    val_timestamps = (np.arange(8, dtype=np.float32) % 24).reshape(-1, 1)
+    test_timestamps = (np.arange(8, dtype=np.float32) % 24).reshape(-1, 1)
+
+    _write_split(dataset_dir, "train", train_data, train_timestamps)
+    _write_split(dataset_dir, "val", val_data, val_timestamps)
+    _write_split(dataset_dir, "test", test_data, test_timestamps)
+    _write_stats(dataset_dir, np.full((3,), 999.0, dtype=np.float32), np.full((3,), 7.0, dtype=np.float32))
+
+    task = MTSFTask(**_build_runtime_conf(tmp_path, dataset_dir.name))
+    expected_mean = torch.as_tensor(train_data.mean(axis=0, keepdims=True), dtype=torch.float32)
+    expected_std = torch.as_tensor(train_data.std(axis=0, keepdims=True), dtype=torch.float32)
+
+    assert task.scaler_policy.data_is_standardized is False
+    assert torch.allclose(task.scaler.mean, expected_mean)
+    assert torch.allclose(task.scaler.std, expected_std)
+
+
+def test_mtsf_standardized_dataset_passthroughs_preprocess_and_inverse_restores_raw(tmp_path):
+    dataset_dir = tmp_path / "mtsf_tiny"
+    dataset_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_train_data = np.arange(36, dtype=np.float32).reshape(12, 3)
+    raw_val_data = np.arange(24, dtype=np.float32).reshape(8, 3) + 100.0
+    raw_test_data = np.arange(24, dtype=np.float32).reshape(8, 3) + 200.0
+    train_timestamps = (np.arange(12, dtype=np.float32) % 24).reshape(-1, 1)
+    val_timestamps = (np.arange(8, dtype=np.float32) % 24).reshape(-1, 1)
+    test_timestamps = (np.arange(8, dtype=np.float32) % 24).reshape(-1, 1)
+
+    mean = raw_train_data.mean(axis=0)
+    std = raw_train_data.std(axis=0)
+    std = np.where(std == 0.0, 1.0, std).astype(np.float32, copy=False)
+
+    _write_meta(dataset_dir, data_is_standardized=True)
+    _write_stats(dataset_dir, mean, std)
+    _write_split(dataset_dir, "train", (raw_train_data - mean) / std, train_timestamps)
+    _write_split(dataset_dir, "val", (raw_val_data - mean) / std, val_timestamps)
+    _write_split(dataset_dir, "test", (raw_test_data - mean) / std, test_timestamps)
+
+    runtime_conf = _build_runtime_conf(tmp_path, dataset_dir.name)
+    datamodule = MTSDataModule(**runtime_conf)
+    test_batch = next(iter(datamodule.test_dataloader()))
+    task = MTSFTask(**runtime_conf)
+
+    processed_batch = task.preprocess_batch(test_batch)
+    _, restored_label = task.postprocess_outputs(test_batch["targets"].float(), test_batch["targets"].float())
+    expected_label = torch.as_tensor(raw_test_data[4:6][None, ...], dtype=torch.float32)
+
+    assert task.scaler_policy.data_is_standardized is True
+    assert torch.allclose(processed_batch["inputs"], test_batch["inputs"].float())
+    assert torch.allclose(processed_batch["targets"], test_batch["targets"].float())
+    assert torch.allclose(restored_label, expected_label)

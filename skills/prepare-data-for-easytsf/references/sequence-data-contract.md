@@ -15,6 +15,10 @@ This is the closest contract to the current runnable EasyTSF path.
   meta.json
 ```
 
+Optional when the stored arrays are already standardized:
+
+- `stats.npz` with `mean` and `std`
+
 ## Core expectations
 
 - `*_data.npy` is usually `[L, N]`
@@ -23,6 +27,10 @@ This is the closest contract to the current runnable EasyTSF path.
 - `meta.json` should define:
   - `frequency (minutes)`
   - `timestamps_description`
+- `meta.json` may optionally define `data_is_standardized`
+  - `true`: `*_data.npy` is already standardized and `stats.npz` is required
+  - missing or `false`: `*_data.npy` is treated as raw storage and runtime fits scaling stats from `train_data.npy`
+- `stats.npz` is not used unless `data_is_standardized` is explicitly `true`
 
 ## Config mapping
 

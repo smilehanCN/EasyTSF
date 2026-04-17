@@ -84,8 +84,6 @@ python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir datase
 python -m easytsf.workflow.experiment config/experiments/unet3d/windfield4cast_demo.yaml
 ```
 
-Grid3D 风场风险预测 benchmark 的任务定义、无人机风速和风切变阈值、标签生成逻辑见 [Grid3D Risk Prediction Task](grid3d_risk_prediction_task.md)。
-
 运行 benchmark：
 
 ```bash

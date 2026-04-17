@@ -11,9 +11,6 @@ use_coords: true
 dataset: WindFieldDemo
 hist_len: 5
 pred_len: 1
-train_patch_shape: [160, 160, 80]
-eval_tile_shape: [160, 160, 80]
-eval_tile_overlap: [32, 32, 16]
 
 # train
 seed: 42

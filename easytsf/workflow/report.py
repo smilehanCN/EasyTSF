@@ -1,5 +1,6 @@
 import argparse
 import csv
+import json
 import math
 from pathlib import Path
 
@@ -21,9 +22,26 @@ def _extract_numeric_metric(value):
     return None if math.isnan(value) else value
 
 
+def _to_hashable_value(value):
+    if isinstance(value, dict):
+        return json.dumps({k: _to_hashable_value(v) for k, v in sorted(value.items())}, sort_keys=True, ensure_ascii=True)
+    if isinstance(value, (list, tuple)):
+        return json.dumps([_to_hashable_value(item) for item in value], ensure_ascii=True)
+    if isinstance(value, set):
+        return json.dumps(sorted(_to_hashable_value(item) for item in value), ensure_ascii=True)
+    return value
+
+
 def build_benchmark_report(benchmark_ref, results_dir=None, out_path=None):
     benchmark_conf = load_benchmark(benchmark_ref)
-    parameter_columns = [key for key in benchmark_conf["param_space"] if key not in FIXED_COLUMNS]
+    parameter_columns = [
+        key
+        for key in benchmark_conf["param_space"]
+        if key not in FIXED_COLUMNS and key != "seed"
+    ]
+    val_metric_mode = str(benchmark_conf["base_conf"].get("val_metric_mode", "min")).lower()
+    if val_metric_mode not in {"min", "max"}:
+        val_metric_mode = "min"
     resolved_results_dir = (
         Path(results_dir).expanduser().resolve()
         if results_dir
@@ -66,7 +84,12 @@ def build_benchmark_report(benchmark_ref, results_dir=None, out_path=None):
                 for value in (_extract_numeric_metric(row.get(column)) for row in rows)
                 if value is not None
             ]
-            metrics[column] = min(values) if values else None
+            if not values:
+                metrics[column] = None
+            elif val_metric_mode == "max":
+                metrics[column] = max(values)
+            else:
+                metrics[column] = min(values)
 
         record = {column: hparams[column] for column in FIXED_COLUMNS}
         record["seed"] = hparams["seed"]
@@ -90,6 +113,9 @@ def build_benchmark_report(benchmark_ref, results_dir=None, out_path=None):
 
     group_columns = FIXED_COLUMNS + parameter_columns
     metric_columns = test_columns + val_columns
+    for column in group_columns:
+        if column in run_df.columns:
+            run_df[column] = run_df[column].map(_to_hashable_value)
     grouped = run_df.groupby(group_columns, dropna=False, sort=True)
     mean_df = grouped[metric_columns].mean().add_suffix("_mean")
     std_df = grouped[metric_columns].std(ddof=1).add_suffix("_std")

@@ -58,7 +58,18 @@ def run_experiment(runtime_conf, extra_callbacks=None):
         enable_model_summary=runtime_conf.get("enable_model_summary", True),
     )
     trainer.fit(task, datamodule=datamodule)
-    return trainer.test(task, datamodule=datamodule, ckpt_path="best")
+
+    ckpt_path = None
+    checkpoint_cb = next((cb for cb in trainer.callbacks if isinstance(cb, ModelCheckpoint)), None)
+    if checkpoint_cb is not None:
+        best_path = checkpoint_cb.best_model_path
+        last_path = checkpoint_cb.last_model_path
+        if best_path and Path(best_path).exists():
+            ckpt_path = best_path
+        elif last_path and Path(last_path).exists():
+            ckpt_path = last_path
+
+    return trainer.test(task, datamodule=datamodule, ckpt_path=ckpt_path)
 
 
 def build_cli_parser():

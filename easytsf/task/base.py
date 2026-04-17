@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import json
 import inspect
-from abc import abstractmethod
 from collections.abc import Iterable
+from pathlib import Path
 
 import lightning.pytorch as L
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lrs
 from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError
 
-from easytsf.data.scaler import StandardScaler
+from easytsf.data.scaler import StandardScaler, load_standard_scaler_stats, resolve_dataset_scaler_policy
 from easytsf.model import get_model_class
 
 
@@ -25,13 +27,67 @@ class BaseForecastTask(L.LightningModule):
         self.test_mse = MeanSquaredError()
 
     def _setup_task_state(self):
+        if self._enable_base_single_scaler():
+            self.dataset_dir = Path(self.hparams.data_root).expanduser() / str(self.hparams.dataset)
+            self.meta = self._load_task_meta()
+            self.scaler_policy = resolve_dataset_scaler_policy(self.dataset_dir, meta=self.meta)
+            self.scaler = self._build_scaler()
+        self._setup_additional_task_state()
         return None
+
+    def _setup_additional_task_state(self):
+        return None
+
+    def _enable_base_single_scaler(self):
+        return False
+
+    def _load_task_meta(self):
+        meta_path = self.dataset_dir / "meta.json"
+        if not meta_path.exists():
+            return {}
+        with meta_path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
 
     def _get_model_derived_args(self):
         return {}
 
     def _iter_standard_scalers(self) -> Iterable[StandardScaler]:
+        scaler = getattr(self, "scaler", None)
+        if scaler is None:
+            return ()
+        return (scaler,)
+
+    def _get_scaler_fit_reduce_dims(self):
+        raise NotImplementedError("single-scaler tasks must implement _get_scaler_fit_reduce_dims")
+
+    def _format_single_scaler_stats(self, mean, std):
+        raise NotImplementedError("single-scaler tasks must implement _format_single_scaler_stats")
+
+    def _get_preprocess_float_keys(self):
         return ()
+
+    def _get_preprocess_scale_keys(self):
+        return ()
+
+    def _build_scaler(self):
+        if not self._enable_base_single_scaler():
+            raise NotImplementedError("tasks without base single-scaler support must implement _build_scaler")
+
+        if self.scaler_policy.requires_forward_transform:
+            mean, std = self._fit_single_scaler_stats()
+        else:
+            mean, std = load_standard_scaler_stats(self.scaler_policy.stats_path)
+        mean, std = self._format_single_scaler_stats(mean, std)
+        return StandardScaler(mean, std)
+
+    def _fit_single_scaler_stats(self):
+        mmap_mode = "r" if bool(getattr(self.hparams, "use_mmap", False)) else None
+        train_variable = np.load(self.dataset_dir / "train_data.npy", mmap_mode=mmap_mode, allow_pickle=False)
+        reduce_dims = self._get_scaler_fit_reduce_dims()
+        mean = np.asarray(train_variable.mean(axis=reduce_dims, dtype=np.float64), dtype=np.float32)
+        std = np.asarray(train_variable.std(axis=reduce_dims, dtype=np.float64), dtype=np.float32)
+        std = np.where(std == 0.0, 1.0, std).astype(np.float32, copy=False)
+        return mean, std
 
     def _build_loss_function(self):
         return nn.MSELoss()
@@ -51,19 +107,32 @@ class BaseForecastTask(L.LightningModule):
                 model_args[name] = derived_args[name]
         return model_cls(**model_args)
 
-    @abstractmethod
     def postprocess_outputs(self, prediction, label, targets_mask=None):
-        """Post-process model outputs and labels.
-        
-        Args:
-            prediction: Model predictions
-            label: Ground truth labels
-            targets_mask: Optional mask for targets
-            
-        Returns:
-            Tuple of (processed_prediction, processed_label)
-        """
-        pass
+        if not self._enable_base_single_scaler():
+            raise NotImplementedError("tasks without base single-scaler support must implement postprocess_outputs")
+        return (
+            self.scaler.inverse_transform(prediction, mask=targets_mask),
+            self.scaler.inverse_transform(label, mask=targets_mask),
+        )
+
+    def preprocess_batch(self, batch):
+        if not self._enable_base_single_scaler():
+            raise NotImplementedError("tasks without base single-scaler support must implement preprocess_batch")
+
+        processed_batch = dict(batch)
+        for key in self._get_preprocess_float_keys():
+            value = processed_batch.get(key)
+            if value is None or value.dtype == torch.float32:
+                continue
+            processed_batch[key] = value.float()
+
+        if self.scaler_policy.requires_forward_transform:
+            for key in self._get_preprocess_scale_keys():
+                value = processed_batch.get(key)
+                if value is None:
+                    continue
+                processed_batch[key] = self.scaler.transform(value)
+        return processed_batch
 
     def _apply(self, fn):
         """Apply a function to all tensors in the module, including scaler stats.
