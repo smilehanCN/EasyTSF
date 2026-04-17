@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from .afno3d import Model as AFNO3DModel
-from .arrow import Model as ARROWModel
 from .fno3d import Model as FNO3DModel
 from .fredn import Model as FreDNMultivariate3DModel
 from .itransformer import Model as iTransformerModel
@@ -19,7 +18,6 @@ from .unet3d_patchcat import Model as UNet3DPatchCatModel
 
 
 MODEL_REGISTRY = {
-    "ARROW": ARROWModel,
     "afno3d": AFNO3DModel,
     "fno3d": FNO3DModel,
     "iTransformer": iTransformerModel,
