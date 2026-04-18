@@ -201,7 +201,6 @@ class Model(nn.Module):
         self.predictor = nn.Linear(modified_dim, self.pred_len)
 
     def forward(self, var_x, marker_x, marker_y):
-        del marker_y
 
         if self.use_norm:
             seq_mean = torch.mean(var_x, dim=1, keepdim=True)

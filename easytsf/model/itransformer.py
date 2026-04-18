@@ -165,6 +165,5 @@ class Model(nn.Module):
         return dec_out
 
     def forward(self, var_x, marker_x, marker_y):
-        del marker_y
         dec_out = self.forecast(var_x, marker_x)
         return dec_out[:, -self.pred_len:, :]

@@ -212,7 +212,6 @@ class Model(nn.Module):
         coords: torch.Tensor | None = None,
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        del mask
         if x.ndim != 6:
             raise ValueError("FNO3D expects x as [B, history_len, C, Y, X, Z], got {}".format(tuple(x.shape)))
         batch_size, history_len, channels, size_y, size_x, size_z = x.shape

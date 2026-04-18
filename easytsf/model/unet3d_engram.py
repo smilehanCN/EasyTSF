@@ -808,7 +808,6 @@ class Model(nn.Module):
         hist_len: int | None = None,
     ) -> None:
         super().__init__()
-        del expansion
         if history_len is None:
             if hist_len is None:
                 raise ValueError("unet3d_engram requires history_len or hist_len")
@@ -964,7 +963,6 @@ class Model(nn.Module):
         coords: torch.Tensor | None = None,
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        del mask
         if x.ndim != 6:
             raise ValueError("UNet3DEngram expects x as [B, history_len, C, Y, X, Z], got {}".format(tuple(x.shape)))
         batch, time_steps, channels, ydim, xdim, zdim = x.shape

@@ -229,7 +229,6 @@ class Model(nn.Module):
         coords: torch.Tensor | None = None,
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        del mask
         batch_size, _, _, size_y, size_x, size_z = x.shape
 
         coords = self._normalize_coords(coords, batch_size=batch_size, spatial_shape=(size_y, size_x, size_z))

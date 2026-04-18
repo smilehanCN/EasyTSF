@@ -7,6 +7,8 @@ import lightning.pytorch as pl
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 
+from .scaler import resolve_data_is_standardized
+
 
 REMOVED_GRID3D_ARGS = ("train_patch_shape", "eval_tile_shape", "eval_tile_overlap")
 
@@ -153,6 +155,17 @@ class Grid3DDataModule(pl.LightningDataModule):
             use_mmap=self.use_mmap,
             use_coords=self.use_coords,
         )
+
+    def export_task_hparams(self) -> dict:
+        channel_names = list(self.meta["channel_names"])
+        return {
+            "grid_shape": [int(size) for size in self.meta["grid_shape"]],
+            "channel_names": channel_names,
+            "in_channels": len(channel_names),
+            "coord_channels": 3,
+            "history_len": self.hist_len,
+            "data_is_standardized": resolve_data_is_standardized(self.meta),
+        }
 
     def train_dataloader(self):
         return self._create_loader(

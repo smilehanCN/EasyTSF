@@ -70,7 +70,6 @@ class Model(nn.Module):
         self.flinear2 = ComplexLinear(2, self.seg_num_y, bias=False)
 
     def forward(self, var_x, marker_x, marker_y):
-        del marker_x, marker_y
         batch_size = var_x.shape[0]
 
         seq_mean = torch.mean(var_x, dim=1, keepdim=True)

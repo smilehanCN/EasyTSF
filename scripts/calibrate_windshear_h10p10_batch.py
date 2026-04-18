@@ -16,8 +16,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from easytsf.task import validate_task_runtime_conf
 from easytsf.workflow.config import finalize_runtime_conf, load_experiment_config, parse_config_overrides
+from easytsf.workflow.experiment import prepare_runtime_conf_for_task
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
@@ -134,8 +134,7 @@ def main() -> int:
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats(device)
 
-        task_spec = validate_task_runtime_conf(runtime_conf)
-        datamodule = task_spec.datamodule_cls(**runtime_conf)
+        task_spec, datamodule, runtime_conf = prepare_runtime_conf_for_task(runtime_conf)
         batch = next(iter(datamodule.train_dataloader()))
         batch = _move_batch_to_device(batch, device)
 
@@ -149,8 +148,7 @@ def main() -> int:
         optimizer = _extract_optimizer(task)
         optimizer.zero_grad(set_to_none=True)
 
-        var_x, var_y, coords = task.preprocess_batch(batch)
-        prediction = task.model(var_x, coords=coords)
+        prediction, var_y = task._forward(batch)
         loss = task.loss_function(prediction, var_y)
 
         model_ref = task.model.module if isinstance(task.model, DDP) else task.model

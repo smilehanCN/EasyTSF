@@ -10,12 +10,23 @@ from easytsf.task import validate_task_runtime_conf
 from .config import finalize_runtime_conf, load_experiment_config, parse_config_overrides
 
 
+def prepare_runtime_conf_for_task(runtime_conf, task_spec=None):
+    prepared_conf = dict(runtime_conf)
+    if task_spec is None:
+        task_spec = validate_task_runtime_conf(prepared_conf)
+
+    datamodule = task_spec.datamodule_cls(**prepared_conf)
+    export_task_hparams = getattr(datamodule, "export_task_hparams", None)
+    if callable(export_task_hparams):
+        prepared_conf.update(dict(export_task_hparams() or {}))
+    prepared_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader()))
+    return task_spec, datamodule, prepared_conf
+
+
 def run_experiment(runtime_conf, extra_callbacks=None):
     L.seed_everything(runtime_conf["seed"], verbose=bool(runtime_conf.get("seed_verbose", True)))
 
-    task_spec = validate_task_runtime_conf(runtime_conf)
-    datamodule = task_spec.datamodule_cls(**runtime_conf)
-    runtime_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader())) # for OneCycleScheduler
+    task_spec, datamodule, runtime_conf = prepare_runtime_conf_for_task(runtime_conf)
     task = task_spec.task_cls(**runtime_conf)
     val_metric_mode = runtime_conf.get("val_metric_mode", "min")
 

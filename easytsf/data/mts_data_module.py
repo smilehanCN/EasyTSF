@@ -5,6 +5,8 @@ import lightning.pytorch as pl
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 
+from .scaler import resolve_data_is_standardized
+
 
 def load_dataset_meta(dataset_dir):
     meta_path = Path(dataset_dir) / "meta.json"
@@ -153,6 +155,11 @@ class MTSDataModule(pl.LightningDataModule):
             variable=self.split_variable[split_name],
             timestamps=self.split_time_feature[split_name],
         )
+
+    def export_task_hparams(self) -> dict:
+        return {
+            "data_is_standardized": resolve_data_is_standardized(self.meta),
+        }
 
     def train_dataloader(self):
         return self._create_loader(

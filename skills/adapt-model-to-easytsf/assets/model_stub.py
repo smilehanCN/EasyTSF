@@ -12,5 +12,4 @@ class Model(nn.Module):
     def forward(self, var_x, marker_x, marker_y):
         # Current concrete runtime path: sequence_prediction through mtsf.
         # Update the signature when implementing a new task contract.
-        del marker_x, marker_y
         raise NotImplementedError("Implement the adapted model for the target prediction task.")

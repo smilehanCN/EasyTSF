@@ -170,7 +170,6 @@ class Model(nn.Module):
         return output
 
     def forward(self, var_x, marker_x, marker_y):
-        del marker_x
         cycle_index = self._extract_cycle_index(marker_y)
         output = self._forecast(var_x, cycle_index)
         return output[:, -self.pred_len:, :]

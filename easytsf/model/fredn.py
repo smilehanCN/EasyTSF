@@ -289,7 +289,6 @@ class Model(nn.Module):
         coords: torch.Tensor | None = None,
         mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        del coords, mask
         batch_size, history_len, channels, size_y, size_x, size_z = x.shape
         if history_len != self.history_len:
             raise ValueError(f"Expected history_len={self.history_len}, got {history_len}.")

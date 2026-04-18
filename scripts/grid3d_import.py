@@ -466,7 +466,7 @@ def import_grid3d_dataset(
         y=np.asarray(y, dtype=np.float32),
         z=np.asarray(z, dtype=np.float32),
     )
-    np.savez(dataset_dir / "stats.npz", mean=mean, std=std)
+    np.savez(dataset_dir / "stats.npz", mean=mean_view[None, ...], std=std_view[None, ...])
 
     split_lengths = {}
     for split_name in ("train", "val", "test"):

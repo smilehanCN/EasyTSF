@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,19 +18,19 @@ class DatasetScalerPolicy:
         return not self.data_is_standardized
 
 
-def resolve_dataset_scaler_policy(dataset_dir, meta=None) -> DatasetScalerPolicy:
-    dataset_dir = Path(dataset_dir).expanduser()
-    if meta is None:
-        meta_path = dataset_dir / "meta.json"
-        with meta_path.open("r", encoding="utf-8") as handle:
-            meta = json.load(handle)
+def resolve_data_is_standardized(meta) -> bool:
+    if "data_is_standardized" not in meta:
+        return False
+    data_is_standardized = meta["data_is_standardized"]
+    if not isinstance(data_is_standardized, bool):
+        raise ValueError("meta field 'data_is_standardized' must be a boolean")
+    return data_is_standardized
 
-    if "data_is_standardized" in meta:
-        data_is_standardized = meta["data_is_standardized"]
-        if not isinstance(data_is_standardized, bool):
-            raise ValueError("meta field 'data_is_standardized' must be a boolean")
-    else:
-        data_is_standardized = False
+
+def resolve_dataset_scaler_policy(dataset_dir, data_is_standardized) -> DatasetScalerPolicy:
+    dataset_dir = Path(dataset_dir).expanduser()
+    if not isinstance(data_is_standardized, bool):
+        raise ValueError("runtime field 'data_is_standardized' must be a boolean")
     stats_path = dataset_dir / "stats.npz"
     if data_is_standardized and not stats_path.exists():
         raise ValueError(
@@ -55,6 +54,14 @@ def load_standard_scaler_stats(stats_path) -> tuple[np.ndarray, np.ndarray]:
             raise ValueError("stats file '{}' must define 'mean' and 'std' arrays".format(stats_path))
         mean = np.asarray(stats["mean"], dtype=np.float32)
         std = np.asarray(stats["std"], dtype=np.float32)
+    if mean.shape != std.shape:
+        raise ValueError(
+            "stats file '{}' must define 'mean' and 'std' with the same shape, got {} and {}".format(
+                stats_path,
+                tuple(mean.shape),
+                tuple(std.shape),
+            )
+        )
     std = np.where(std == 0.0, 1.0, std).astype(np.float32, copy=False)
     return mean, std
 

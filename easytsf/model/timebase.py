@@ -97,7 +97,6 @@ class Model(nn.Module):
         return self._aux_loss
 
     def forward(self, var_x, marker_x, marker_y):
-        del marker_x, marker_y
         if var_x.ndim != 3:
             raise ValueError("TimeBase expects var_x as [B, hist_len, N], but received shape {}".format(tuple(var_x.shape)))
         batch_size, hist_len, var_num = var_x.shape

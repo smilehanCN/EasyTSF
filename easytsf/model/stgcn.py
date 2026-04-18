@@ -72,7 +72,6 @@ class Model(nn.Module):
         return inv_sqrt_degree.unsqueeze(-1) * support * inv_sqrt_degree.unsqueeze(-2)
 
     def forward(self, var_x, marker_x, marker_y):
-        del marker_x, marker_y
         x = var_x.transpose(1, 2).unsqueeze(1)
         x = self.input_proj(x)
 
