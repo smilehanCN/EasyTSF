@@ -158,7 +158,7 @@ class Grid3DDataModule(pl.LightningDataModule):
 
     def export_task_hparams(self) -> dict:
         channel_names = list(self.meta["channel_names"])
-        return {
+        exported = {
             "grid_shape": [int(size) for size in self.meta["grid_shape"]],
             "channel_names": channel_names,
             "in_channels": len(channel_names),
@@ -166,6 +166,9 @@ class Grid3DDataModule(pl.LightningDataModule):
             "history_len": self.hist_len,
             "data_is_standardized": resolve_data_is_standardized(self.meta),
         }
+        if "grid_spacing_m" in self.meta:
+            exported["grid_spacing_m"] = [float(value) for value in self.meta["grid_spacing_m"]]
+        return exported
 
     def train_dataloader(self):
         return self._create_loader(

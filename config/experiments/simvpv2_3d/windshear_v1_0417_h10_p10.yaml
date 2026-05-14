@@ -1,0 +1,49 @@
+# model
+model: simvpv2_3d
+coord_channels: 3
+embed_dim: 64
+hidden_dim: 128
+depth: 4
+kernel_size: [3, 3, 3]
+spatial_downsample_factor_3d: [2, 2, 1]
+dropout: 0.0
+use_coords: true
+
+# data
+dataset: WindStear_V1_0417
+hist_len: 10
+pred_len: 10
+grid_spacing_m: [10.0, 10.0, 10.0]
+
+# train
+seed: 42
+batch_size: 1
+accumulate_grad_batches: 16
+max_epochs: 50
+lr: 0.0003
+lr_scheduler: StepLR
+lr_step_size: 1
+lr_gamma: 1.0
+es_patience: 50
+optimizer: AdamW
+gradient_clip_val: 1.0
+gradient_clip_algorithm: norm
+shear_loss_weight: 0.5
+val_metric: val/loss
+test_metric_space: original
+
+# runtime
+task: grid3d_forecasting
+num_workers: 2
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+use_mmap: true
+data_root: dataset
+save_root: checkpoint/windshear_v1_0417_h10_p10_simvpv2_3d
+accelerator: gpu
+devices: 1
+strategy: auto
+precision: bf16-mixed
+check_val_every_n_epoch: 5
+num_sanity_val_steps: 0

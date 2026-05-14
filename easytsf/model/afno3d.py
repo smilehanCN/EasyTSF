@@ -6,16 +6,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-
-def _as_tuple3(value: object, field_name: str) -> tuple[int, int, int]:
-    if value is None:
-        raise ValueError("Expected {} to be a length-3 tuple/list, got None".format(field_name))
-    if isinstance(value, (list, tuple)) and len(value) == 3:
-        parsed = tuple(int(v) for v in value)
-        if any(v <= 0 for v in parsed):
-            raise ValueError("Expected {} entries to be positive, got {!r}".format(field_name, value))
-        return parsed
-    raise ValueError("Expected {} to be a length-3 tuple/list, got {!r}".format(field_name, value))
+from easytsf.model.grid3d_common import as_tuple3 as _as_tuple3
+from easytsf.model.grid3d_common import resolve_grid3d_output_channels
 
 
 def _drop_path(x: torch.Tensor, drop_prob: float, training: bool) -> torch.Tensor:
@@ -41,6 +33,7 @@ class DropPath(nn.Module):
 class AFNO3DModelConfig:
     model_name: str = "afno3d"
     in_channels: int = 6
+    out_channels: int | None = None
     coord_channels: int = 3
     patch_size: tuple[int, int, int] = (7, 7, 2)
     afno_embed_dim: int = 64
@@ -243,6 +236,7 @@ class Model(nn.Module):
         history_len: int | None = None,
         pred_len: int = 1,
         in_channels: int = 6,
+        out_channels: int | None = None,
         coord_channels: int = 3,
         patch_size: tuple[int, int, int] = (7, 7, 2),
         afno_embed_dim: int = 64,
@@ -288,15 +282,14 @@ class Model(nn.Module):
             raise ValueError("afno_embed_dim must be > 0")
         if self.afno_depth <= 0:
             raise ValueError("afno_depth must be > 0")
-        if self.output_mode not in {"regression", "classification"}:
-            raise ValueError(
-                "afno3d output_mode must be one of ['regression', 'classification'], got {}".format(self.output_mode)
-            )
-        if self.risk_num_classes <= 0 or self.risk_num_heads <= 0:
-            raise ValueError("risk_num_classes and risk_num_heads must be > 0")
-
-        self.classification_channels = self.risk_num_classes * self.risk_num_heads
-        self.output_channels = self.in_channels if self.output_mode == "regression" else self.classification_channels
+        self.regression_out_channels, self.classification_channels, self.output_channels = resolve_grid3d_output_channels(
+            in_channels=self.in_channels,
+            out_channels=out_channels,
+            output_mode=self.output_mode,
+            risk_num_classes=self.risk_num_classes,
+            risk_num_heads=self.risk_num_heads,
+            model_name="afno3d",
+        )
         self.patch_volume = self.patch_size[0] * self.patch_size[1] * self.patch_size[2]
         total_in_channels = self.history_len * self.in_channels + (self.coord_channels if self.use_coords else 0)
 

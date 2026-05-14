@@ -1,0 +1,46 @@
+# model
+model: fno3d
+fno_width: 20
+fno_layers: 4
+fno_modes: [12, 12, 12]
+fno_padding: 6
+fno_projection_dim: 128
+use_coords: true
+
+# data
+dataset: WindStear_V1_0417
+hist_len: 10
+pred_len: 10
+grid_spacing_m: [10.0, 10.0, 10.0]
+
+# train
+seed: 42
+batch_size: 4
+max_epochs: 50
+lr: 0.0001
+lr_scheduler: StepLR
+lr_step_size: 1
+lr_gamma: 1.0
+es_patience: 50
+optimizer: Adam
+gradient_clip_val: 0.0
+gradient_clip_algorithm: norm
+shear_loss_weight: 0.5
+val_metric: val/loss
+test_metric_space: original
+
+# runtime
+task: grid3d_forecasting
+num_workers: 2
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+use_mmap: true
+data_root: dataset
+save_root: checkpoint/windshear_v1_0417_h10_p10_fno3d
+accelerator: gpu
+devices: 2
+strategy: ddp
+precision: bf16-mixed
+check_val_every_n_epoch: 5
+num_sanity_val_steps: 0

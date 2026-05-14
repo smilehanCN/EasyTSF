@@ -1,4 +1,0 @@
-interface:
-  display_name: "EasyTSF Data Prep"
-  short_description: "Classify prediction data and map its contract"
-  default_prompt: "Use $prepare-data-for-easytsf to inspect this dataset, classify it as sequence, graph, or grid prediction data, and tell me whether the current EasyTSF repo can use it directly or needs a contract extension."

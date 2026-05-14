@@ -1,0 +1,35 @@
+# Task-oriented planning stub for maintained Grid3D forecasting.
+
+# model
+model: YourGridModel
+# add grid-specific keys here
+
+# data
+dataset: YourGridDataset
+hist_len: 12
+pred_len: 12
+var_num: 1
+# example task-specific keys:
+# grid_shape: [32, 32, 16]
+# use_coords: true
+
+# train
+seed: 42
+batch_size: 8
+max_epochs: 30
+lr: 0.001
+lr_scheduler: OneCycleLR
+lrs_pct_start: 0.3
+es_patience: 5
+optimizer: Adam
+gradient_clip_val: 0.0
+gradient_clip_algorithm: norm
+val_metric: val/loss
+test_metric_space: original
+
+# runtime
+task: grid3d_forecasting
+num_workers: 2
+data_root: dataset
+save_root: checkpoint
+devices: auto

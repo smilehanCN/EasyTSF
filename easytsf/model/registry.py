@@ -2,18 +2,16 @@ from __future__ import annotations
 
 from .afno3d import Model as AFNO3DModel
 from .fno3d import Model as FNO3DModel
-from .fredn import Model as FreDNMultivariate3DModel
 from .itransformer import Model as iTransformerModel
 from .mixlinear import Model as MixLinearModel
 from .patchstg_flat3d import Model as PatchSTGFlat3DModel
 from .pcmlp import Model as PCMLPModel
+from .simvpv2_3d import Model as SimVPv23DModel
 from .sparsetsf import Model as SparseTSFModel
 from .stid import Model as STIDModel
-from .stgcn import Model as STGCNModel
 from .timebase import Model as TimeBaseModel
 from .tqnet import Model as TQNetModel
 from .unet3d import Model as UNet3DModel
-from .unet3d_engram import Model as UNet3DEngramModel
 from .unet3d_patchcat import Model as UNet3DPatchCatModel
 
 
@@ -23,16 +21,14 @@ MODEL_REGISTRY = {
     "iTransformer": iTransformerModel,
     "MixLinear": MixLinearModel,
     "PCMLP": PCMLPModel,
+    "simvpv2_3d": SimVPv23DModel,
     "TQNet": TQNetModel,
-    "STGCN": STGCNModel,
     "STID": STIDModel,
     "SparseTSF": SparseTSFModel,
     "TimeBase": TimeBaseModel,
     "unet3d": UNet3DModel,
-    "unet3d_engram": UNet3DEngramModel,
     "unet3d_patchcat": UNet3DPatchCatModel,
     "patchstg_flat3d": PatchSTGFlat3DModel,
-    "fredn_multivariate3d": FreDNMultivariate3DModel,
 }
 
 

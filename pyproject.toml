@@ -19,5 +19,14 @@ dependencies = [
     "h5py>=3.10.0",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
 [tool.setuptools.packages.find]
 include = ["easytsf*"]

@@ -1,0 +1,49 @@
+# model
+model: patchstg_flat3d
+coord_channels: 3
+patch_size_3d: [10, 10, 2]
+embed_dim: 64
+depth: 2
+num_heads: 4
+mlp_ratio: 2.0
+dropout: 0.1
+use_coords: true
+spatial_downsample_factor_3d: [4, 4, 4]
+
+# data
+dataset: WindStear_V1_0417
+hist_len: 5
+pred_len: 1
+grid_spacing_m: [10.0, 10.0, 10.0]
+
+# train
+seed: 42
+batch_size: 8
+max_epochs: 30
+lr: 0.0001
+lr_scheduler: StepLR
+lr_step_size: 1
+lr_gamma: 1.0
+es_patience: 30
+optimizer: Adam
+gradient_clip_val: 1.0
+gradient_clip_algorithm: norm
+shear_loss_weight: 0.5
+val_metric: val/loss
+test_metric_space: original
+
+# runtime
+task: grid3d_forecasting
+num_workers: 2
+pin_memory: true
+persistent_workers: true
+prefetch_factor: 2
+use_mmap: true
+data_root: dataset
+save_root: checkpoint/windshear_v1_0417_patchstg_flat3d
+accelerator: gpu
+devices: 1
+strategy: auto
+precision: bf16-mixed
+check_val_every_n_epoch: 5
+num_sanity_val_steps: 0

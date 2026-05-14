@@ -54,6 +54,7 @@ def _as_offset_tuples(value: object, field_name: str) -> tuple[tuple[int, int, i
 class UNet3DModelConfig:
     model_name: str = "unet3d"
     in_channels: int = 6
+    out_channels: int | None = None
     coord_channels: int = 3
     base_channels: int = 16
     patch_size: tuple[int, int, int] = (1, 1, 1)
@@ -351,6 +352,7 @@ class Model(nn.Module):
         kernel_size: tuple[int, int, int] = (3, 3, 3),
         expansion: int = 2,
         use_coords: bool = True,
+        out_channels: int | None = None,
         output_mode: str = "regression",
         risk_num_classes: int = 3,
         risk_num_heads: int = 4,
@@ -367,6 +369,7 @@ class Model(nn.Module):
         self.history_len = int(history_len)
         self.pred_len = int(pred_len)
         self.in_channels = int(in_channels)
+        self.output_channels = self.in_channels if out_channels is None else int(out_channels)
         self.coord_channels = int(coord_channels)
         # Kept only so old configs remain loadable; pure 3D U-Net does not patch-embed the input.
         self.patch_size = _as_tuple3(patch_size, "patch_size")
@@ -389,6 +392,8 @@ class Model(nn.Module):
             raise ValueError(
                 "unet3d output_mode must be one of ['regression', 'classification'], got {}".format(self.output_mode)
             )
+        if self.output_channels <= 0:
+            raise ValueError("out_channels must be > 0")
         if self.risk_num_classes <= 0 or self.risk_num_heads <= 0:
             raise ValueError("risk_num_classes and risk_num_heads must be > 0")
         self.classification_channels = self.risk_num_classes * self.risk_num_heads
@@ -423,7 +428,7 @@ class Model(nn.Module):
             self.downsample_scales[0],
             kernel_size=self.kernel_size,
         )
-        self.regression_head = OutConv3D(base_channels, self.pred_len * self.in_channels)
+        self.regression_head = OutConv3D(base_channels, self.pred_len * self.output_channels)
         self.classification_head = OutConv3D(base_channels, self.pred_len * self.classification_channels)
 
     def _normalize_coords(
@@ -490,7 +495,7 @@ class Model(nn.Module):
 
         if self.output_mode == "regression":
             x = self.regression_head(x)
-            x = x.view(batch, self.pred_len, self.in_channels, *model_spatial_shape)
+            x = x.view(batch, self.pred_len, self.output_channels, *model_spatial_shape)
             if self.enable_io_downsample:
                 x = _upsample_prediction_3d(x, output_spatial_shape)
             return x

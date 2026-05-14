@@ -1,169 +1,141 @@
 # EasyTSF
 
-## Overview
-EasyTSF (**E**xperiment-friendly **A**ssistant for **Y**our **T**ime-**S**eries **F**orecasting): easy for humans, easy for AI.
+EasyTSF is a lightweight forecasting research toolkit built around explicit task contracts and low-overhead experiment workflows. The goal is to make a new time-series forecasting idea easy to land as a runnable experiment without hiding task-specific assumptions in a large framework.
 
-EasyTSF is a lightweight prediction-task library built on Lightning, with reproducible workflows and agent-friendly skills:
-- Workflow design for researchers who want a clear path from model code to reproducible experiments and benchmarks.
-- Skill design for AI agents that need explicit contracts for data, tasks, model interfaces, and workflow surfaces.
+## Current Support
 
-For a Chinese companion guide, see [docs/readme_cn.md](docs/readme_cn.md).
+EasyTSF describes every prediction path in four layers:
 
-## Workflow Design
+1. data contract
+2. task contract
+3. model interface
+4. workflow surface
 
-Workflow design is the human-facing contract in EasyTSF. It is built around three public workflow surfaces:
+The current runnable task surface is:
 
-### Experiment, Benchmark and Report
+| Task | Family | Data module | Model interface | Status |
+| --- | --- | --- | --- | --- |
+| `mtsf` | `sequence_prediction` | `MTSDataModule` | `forward(var_x, marker_x, marker_y)` | maintained |
+| `grid3d_forecasting` | `grid_prediction` | `Grid3DDataModule` | `forward(x, coords=None)` | maintained |
 
-`experiment` is the base unit. The Quick Start example below runs one `experiment`; `benchmark` expands that unit into many runs for parameter tuning, and `report` aggregates those runs into a readable summary.
+Graph prediction and Grid3D shear input/output ablations are explicit extension targets. They are not exposed as runnable tasks in the current core package.
 
-- `experiment`: run a single experiment. This is the smallest runnable unit, used to debug model code and training behavior, and it is also the foundation of `benchmark`.
-- `benchmark`: run batches of experiments from a benchmark config. This is the main path for hyperparameter search and optimization.
-- `report`: summarize batch experiment outputs into comparable results for inspection and analysis.
-
-These workflows build on Lightning and separate static experiment presets from runtime overrides so researchers can move from single-run debugging to batch evaluation with less cognitive overhead.
-
-## Prediction Tasks
-
-EasyTSF documents prediction work in four layers:
-
-1. `data contract`
-2. `task contract`
-3. `model interface`
-4. `workflow surface`
-
-The taxonomy used by the Skills and docs is:
-
-- `sequence_prediction`
-- `graph_prediction`
-- `grid_prediction`
-
-The current runnable codebase still centers on one concrete sequence-oriented implementation through the existing `mtsf` path. It also includes a maintained `grid3d_forecasting` path for 3D grid forecasting based on per-step `.npy` caches imported from WindField4Cast-style raw files. Graph prediction remains an explicit extension target rather than a hidden edge case.
-
-### Quick Start
+## Install
 
 Use Python `>=3.11`.
-
-Install the package into your active Python environment:
 
 ```bash
 python -m pip install -e .
 ```
 
-Run a single experiment from the CLI:
+The package dependencies are declared in `pyproject.toml`. Local datasets, checkpoints, logs, and benchmark outputs are intentionally not part of the package.
+
+## Workflows
+
+Run one experiment:
 
 ```bash
 python -m easytsf.workflow.experiment config/experiments/tqnet/etth1.yaml
 ```
 
-Run the maintained MixLinear ETTh1 preset:
+Override flat config keys at runtime:
 
 ```bash
-python -m easytsf.workflow.experiment config/experiments/mixlinear/etth1.yaml
+python -m easytsf.workflow.experiment config/experiments/unet3d/windfield4cast_demo.yaml --set devices=auto --set max_epochs=1
 ```
 
-Run the adapted TimeBase ETTh1 preset:
-
-```bash
-python -m easytsf.workflow.experiment config/experiments/timebase/etth1.yaml
-```
-
-Import a WindField4Cast-style raw directory into the Grid3D per-step cache layout:
-
-```bash
-python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/WindFieldDemo
-```
-
-Run the maintained UNet3D Grid3D preset:
-
-```bash
-python -m easytsf.workflow.experiment config/experiments/unet3d/windfield4cast_demo.yaml
-```
-
-Run benchmark search:
+Run a benchmark:
 
 ```bash
 python -m easytsf.workflow.benchmark config/benchmarks/mixlinear/etth1.py
 ```
 
-Run the TimeBase benchmark search:
+Build a report from benchmark outputs:
 
 ```bash
-python -m easytsf.workflow.benchmark config/benchmarks/timebase/etth1.py
+python -m easytsf.workflow.report config/benchmarks/mixlinear/etth1.py --out reports/mixlinear_etth1.csv
 ```
 
-Build a benchmark report from search outputs:
-
-```bash
-python -m easytsf.workflow.report config/benchmarks/mixlinear/etth1.py
-```
-
-## Skill Design
-
-Skill design is the AI-facing contract in EasyTSF. Skills turn repository conventions into reusable interfaces so AI agents can classify prediction tasks, map them onto the current repository surface, and plan explicit extensions when the current code does not yet support them. The current repository ships three maintained Skills:
-
-- `prepare-data-for-easytsf`: inspect local data artifacts, classify the prediction task, and map the data contract onto the current repo or an extension plan
-- `adapt-model-to-easytsf`: inspect external model code, classify the target prediction task, and map the required model/task/repo changes
-- `run-workflow-with-easytsf`: plan or run task-aware experiment, benchmark, and report workflows from the current repo surface
-
-### Install the Skill
-
-To use the repository versions locally, place them into your Codex skills directory manually. Codex auto-discovers skills from `${CODEX_HOME}/skills` when `CODEX_HOME` is set, otherwise from `~/.codex/skills`.
-
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-cp -R skills/* "${CODEX_HOME:-$HOME/.codex}/skills/"
-```
-
-If you want the installed Skills to stay synced with this repository while you edit them, symlink each skill directory:
-
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
-for skill_dir in skills/*; do
-  ln -s "$(pwd)/${skill_dir}" "${CODEX_HOME:-$HOME/.codex}/$(basename "${skill_dir}")"
-done
-```
-
-### Prepare Data for EasyTSF
-
-Use this Skill when the user already has local data artifacts and wants an AI agent to classify the task before touching configs or runs:
+Config merge priority is fixed:
 
 ```text
-Use $prepare-data-for-easytsf to inspect this dataset directory, classify it as sequence, graph, or grid prediction data, and tell me whether the current EasyTSF repo can use it directly or needs a contract extension.
+experiment preset < runtime overrides < benchmark param_space
 ```
 
-### Adapt a Model to EasyTSF
+## Data Contracts
 
-Use this Skill when the user already has external model code and wants an AI agent to map it onto the right prediction-task contract:
+Sequence datasets use:
 
 ```text
-Use $adapt-model-to-easytsf to inspect this model implementation, classify it as sequence, graph, or grid prediction, and tell me whether EasyTSF can adapt it directly or needs new task/data/workflow layers.
+<data_root>/<dataset>/
+  train_data.npy
+  val_data.npy
+  test_data.npy
+  train_timestamps.npy
+  val_timestamps.npy
+  test_timestamps.npy
+  meta.json
+  stats.npz       # required only when meta.data_is_standardized=true
 ```
 
-### Run an EasyTSF Workflow
-
-Use this Skill when the user wants exact workflow guidance, from one experiment to a benchmark plus report:
+Grid3D datasets use the same split naming plus grid artifacts:
 
 ```text
-Use $run-workflow-with-easytsf to classify this prediction task, tell me whether the current EasyTSF repo can run it directly, and give me the exact experiment or benchmark workflow surface.
+<data_root>/<dataset>/
+  train_data.npy          # T,C,Y,X,Z
+  val_data.npy
+  test_data.npy
+  train_timestamps.npy
+  val_timestamps.npy
+  test_timestamps.npy
+  coord.npy               # optional coordinates, 3,Y,X,Z
+  axes.npz                # optional physical axes
+  stats.npz               # required only when standardized
+  meta.json
 ```
 
-## Current Implementation Note
+Import WindField4Cast-style raw files into the maintained Grid3D cache layout:
 
-Today, the current runnable code path still uses the sequence-oriented `mtsf` implementation, and it also ships a maintained `grid3d_forecasting` grid-forecasting path:
+```bash
+python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/WindFieldDemo
+```
 
-- `easytsf/data/mts_data_module.py`
-- `easytsf/task/mtsf.py`
-- `easytsf/data/grid3d_data_module.py`
-- `easytsf/task/grid3d_forecasting.py`
-- `easytsf/workflow/experiment.py`
-- `easytsf/workflow/benchmark.py`
-- `easytsf/workflow/report.py`
+Run the demo Grid3D preset:
 
-The Skills and docs deliberately speak in task-aware prediction language beyond that concrete implementation. If a request targets graph or grid prediction, the expected response is an explicit extension plan rather than a forced downgrade into sequence-only assumptions.
+```bash
+python -m easytsf.workflow.experiment config/experiments/unet3d/windfield4cast_demo.yaml
+```
 
-The maintained sequence model surface now includes runnable `MixLinear` and `TimeBase` presets at `config/experiments/mixlinear/etth1.yaml` and `config/experiments/timebase/etth1.yaml`, plus benchmark examples at `config/benchmarks/mixlinear/etth1.py` and `config/benchmarks/timebase/etth1.py`.
+## Repository Layout
 
-The repository-level collaboration rules for Codex live in [AGENT.md](AGENT.md).
+- `easytsf/data/`: dataset readers, split window datasets, and scaling utilities
+- `easytsf/task/`: task-owned preprocessing, label construction, metrics, and model instantiation
+- `easytsf/model/`: model adapters with explicit constructor arguments
+- `easytsf/workflow/`: experiment, benchmark, and report entrypoints
+- `config/experiments/`: runnable experiment presets
+- `config/benchmarks/`: Ray Tune benchmark configs
+- `scripts/`: stable utility scripts such as dataset import
+- `recipes/`: research launchers and one-off experiment orchestration
+- `skills/`: agent-facing repository contracts
 
-Skill sources of truth live under [`skills/`](skills/).
+## Research Assets
+
+WindShear 0416/0417 sweeps, ablations, multi-seed launches, and monitoring helpers are treated as historical research recipes rather than core library APIs. Some of them reference removed or experimental task names and may require task support to be reintroduced before use.
+
+The historical dataset spelling `WindStear_V1_0417` appears in some existing presets because it matches local experiment artifacts. New documentation should use `WindShear` unless referring to that concrete dataset directory.
+
+## Validation
+
+For lightweight validation after code changes:
+
+```bash
+python -m compileall easytsf scripts
+```
+
+For install validation:
+
+```bash
+python -m pip install -e .
+```
+
+The repository intentionally favors compile/install/smoke checks over heavyweight full experiment runs by default.

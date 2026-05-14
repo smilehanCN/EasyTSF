@@ -35,12 +35,11 @@ TASK_SPECS = {
         task_cls=Grid3DForecastingTask,
         supported_models=(
             "unet3d",
-            "unet3d_engram",
             "unet3d_patchcat",
             "patchstg_flat3d",
-            "fredn_multivariate3d",
             "fno3d",
             "afno3d",
+            "simvpv2_3d",
         ),
         metric_schema=MetricSchema(
             val_metrics=("val/loss",),

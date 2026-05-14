@@ -1,4 +1,0 @@
-interface:
-  display_name: "EasyTSF Workflow Runner"
-  short_description: "Plan experiment, benchmark, and report workflows"
-  default_prompt: "Use $run-workflow-with-easytsf to classify this prediction task, tell me whether the current EasyTSF repo can run it directly, and give me the exact experiment or benchmark workflow surface."

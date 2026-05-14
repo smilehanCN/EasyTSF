@@ -1,5 +1,4 @@
 import os
-from itertools import product
 
 from ray import tune
 
@@ -28,19 +27,22 @@ def _batch_size() -> int:
 
 
 def _precision() -> str:
-    return str(os.environ.get("WSH_PRECISION", "32-true"))
+    return str(os.environ.get("WSH_PRECISION", "bf16-mixed"))
+
+def _max_epochs() -> int:
+    return max(1, _env_int("WSH_MAX_EPOCHS", 50))
 
 
-LEARNING_RATES = (1e-4, 5e-5)
-FNO_WIDTHS = (16, 20, 24)
-
-CASES = {}
-for lr, fno_width in product(LEARNING_RATES, FNO_WIDTHS):
-    case_id = "lr{}_w{}".format("{:.0e}".format(lr), fno_width)
-    CASES[case_id] = {
-        "lr": lr,
-        "fno_width": fno_width,
-    }
+CASES = {
+    "lr5e-05_w16": {"lr": 5e-5, "fno_width": 16},
+    "lr1e-04_w16": {"lr": 1e-4, "fno_width": 16},
+    "lr2e-04_w16": {"lr": 2e-4, "fno_width": 16},
+    "lr3e-04_w16": {"lr": 3e-4, "fno_width": 16},
+    "lr5e-05_w20": {"lr": 5e-5, "fno_width": 20},
+    "lr1e-04_w20": {"lr": 1e-4, "fno_width": 20},
+    "lr2e-04_w20": {"lr": 2e-4, "fno_width": 20},
+    "lr3e-04_w20": {"lr": 3e-4, "fno_width": 20},
+}
 
 
 def _pick(case_key: str):
@@ -48,15 +50,15 @@ def _pick(case_key: str):
 
 
 benchmark_config = {
-    "name": "fno3d_windshear_v1_0416_h10_p10_tune_{}".format(_run_tag()),
-    "search_save_dir": "save/benchmarks/fno3d_windshear_v1_0416_h10_p10_tune_{}".format(_run_tag()),
+    "name": "fno3d_windshear_v1_0417_h10_p10_tune_{}".format(_run_tag()),
+    "search_save_dir": "save/benchmarks/fno3d_windshear_v1_0417_h10_p10_tune_{}".format(_run_tag()),
     "search_config": {
         "num_samples": 1,
         "cpus_per_trial": _env_int("BENCH_CPUS_PER_TRIAL", 4),
         "gpus_per_trial": float(_devices_per_trial()),
         "num_gpus": _env_int("BENCH_NUM_GPUS", _devices_per_trial()),
     },
-    "experiment": "config/experiments/fno3d/windshear_v1_0416_h10_p10.yaml",
+    "experiment": "config/experiments/fno3d/windshear_v1_0417_h10_p10.yaml",
     "param_space": {
         "case_id": tune.grid_search(list(CASES.keys())),
         "tune_tag": tune.sample_from(lambda cfg: cfg["case_id"]),
@@ -65,6 +67,7 @@ benchmark_config = {
         "devices": _devices_per_trial(),
         "strategy": _strategy_for_devices(),
         "precision": _precision(),
+        "max_epochs": _max_epochs(),
         "lr": _pick("lr"),
         "fno_width": _pick("fno_width"),
     },

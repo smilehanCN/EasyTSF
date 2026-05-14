@@ -68,6 +68,9 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+.pip-install-check/
+.pytest-deps/
+.pytest-wheels/
 
 # Translations
 *.mo
@@ -186,3 +189,5 @@ config/private_*
 .DS_Store
 dataset
 checkpoint
+.vscode
+.github

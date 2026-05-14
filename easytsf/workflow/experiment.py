@@ -1,4 +1,5 @@
 import argparse
+import math
 from pathlib import Path
 
 import lightning.pytorch as L
@@ -10,6 +11,32 @@ from easytsf.task import validate_task_runtime_conf
 from .config import finalize_runtime_conf, load_experiment_config, parse_config_overrides
 
 
+def _resolve_device_count(devices) -> int:
+    if isinstance(devices, int):
+        return max(1, devices)
+    if isinstance(devices, (list, tuple)):
+        return max(1, len(devices))
+    return 1
+
+
+def _apply_train_batch_limit(train_batches: int, limit_train_batches) -> int:
+    if limit_train_batches in {None, ""}:
+        return train_batches
+    if isinstance(limit_train_batches, str) and limit_train_batches.lower() in {"all", "none"}:
+        return train_batches
+    if isinstance(limit_train_batches, bool):
+        return train_batches
+    if isinstance(limit_train_batches, int):
+        return max(1, min(train_batches, int(limit_train_batches)))
+    if isinstance(limit_train_batches, float):
+        if limit_train_batches <= 0:
+            raise ValueError("limit_train_batches must be positive when set")
+        if limit_train_batches <= 1.0:
+            return max(1, int(math.ceil(train_batches * limit_train_batches)))
+        return max(1, min(train_batches, int(limit_train_batches)))
+    raise TypeError("unsupported limit_train_batches type: {}".format(type(limit_train_batches).__name__))
+
+
 def prepare_runtime_conf_for_task(runtime_conf, task_spec=None):
     prepared_conf = dict(runtime_conf)
     if task_spec is None:
@@ -19,7 +46,15 @@ def prepare_runtime_conf_for_task(runtime_conf, task_spec=None):
     export_task_hparams = getattr(datamodule, "export_task_hparams", None)
     if callable(export_task_hparams):
         prepared_conf.update(dict(export_task_hparams() or {}))
-    prepared_conf["steps_per_epoch"] = max(1, len(datamodule.train_dataloader()))
+    train_batches = max(1, len(datamodule.train_dataloader()))
+    device_count = _resolve_device_count(prepared_conf.get("devices", 1))
+    accumulate_grad_batches = max(1, int(prepared_conf.get("accumulate_grad_batches", 1)))
+    strategy = str(prepared_conf.get("strategy", "auto"))
+    if device_count > 1 and strategy.startswith("ddp"):
+        train_batches = int(math.ceil(train_batches / float(device_count)))
+    train_batches = _apply_train_batch_limit(train_batches, prepared_conf.get("limit_train_batches"))
+    prepared_conf["train_batches_per_epoch"] = train_batches
+    prepared_conf["steps_per_epoch"] = max(1, int(math.ceil(train_batches / float(accumulate_grad_batches))))
     return task_spec, datamodule, prepared_conf
 
 
@@ -55,9 +90,11 @@ def run_experiment(runtime_conf, extra_callbacks=None):
         devices=runtime_conf["devices"],
         strategy=runtime_conf.get("strategy", "auto"),
         precision=runtime_conf.get("precision", "32-true"),
+        accumulate_grad_batches=int(runtime_conf.get("accumulate_grad_batches", 1)),
         logger=CSVLogger(save_dir=str(exp_dir), name="", version=""),
         callbacks=callbacks,
         max_epochs=runtime_conf["max_epochs"],
+        limit_train_batches=runtime_conf.get("limit_train_batches", 1.0),
         check_val_every_n_epoch=runtime_conf.get("check_val_every_n_epoch", 1),
         num_sanity_val_steps=runtime_conf.get("num_sanity_val_steps", 2),
         log_every_n_steps=runtime_conf.get("log_every_n_steps", 50),

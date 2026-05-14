@@ -20,6 +20,7 @@ def _as_tuple3(value: object, field_name: str) -> tuple[int, int, int]:
 class PatchSTGFlat3DModelConfig:
     model_name: str = "patchstg_flat3d"
     in_channels: int = 3
+    out_channels: int | None = None
     coord_channels: int = 3
     patch_size_3d: tuple[int, int, int] = (4, 4, 4)
     embed_dim: int = 96
@@ -100,6 +101,7 @@ class Model(nn.Module):
         history_len: int,
         pred_len: int = 1,
         in_channels: int = 3,
+        out_channels: int | None = None,
         coord_channels: int = 3,
         patch_size_3d: tuple[int, int, int] = (4, 4, 4),
         embed_dim: int = 96,
@@ -125,6 +127,7 @@ class Model(nn.Module):
         self.history_len = history_len
         self.pred_len = pred_len
         self.in_channels = in_channels
+        self.output_channels = self.in_channels if out_channels is None else int(out_channels)
         self.coord_channels = coord_channels
         self.patch_size_3d = patch_size_3d
         self.embed_dim = embed_dim
@@ -139,6 +142,8 @@ class Model(nn.Module):
                     self.output_mode
                 )
             )
+        if self.output_channels <= 0:
+            raise ValueError("out_channels must be > 0")
         if self.risk_num_classes <= 0 or self.risk_num_heads <= 0:
             raise ValueError("risk_num_classes and risk_num_heads must be > 0")
         self.classification_channels = self.risk_num_classes * self.risk_num_heads
@@ -149,7 +154,7 @@ class Model(nn.Module):
             [DualAttentionBlock(embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout) for _ in range(depth)]
         )
         self.output_norm = nn.LayerNorm(embed_dim)
-        self.regression_output_proj = nn.Linear(embed_dim, pred_len * self.in_channels)
+        self.regression_output_proj = nn.Linear(embed_dim, pred_len * self.output_channels)
         self.classification_output_proj = nn.Linear(embed_dim, pred_len * self.classification_channels)
         self.spatial_downsample = nn.AvgPool3d(
             kernel_size=spatial_downsample_factor_3d,
@@ -285,7 +290,7 @@ class Model(nn.Module):
         normalized_patches = self.output_norm(patches)
         if self.output_mode == "regression":
             patches = self.regression_output_proj(normalized_patches)
-            output_channels = self.in_channels
+            output_channels = self.output_channels
         else:
             patches = self.classification_output_proj(normalized_patches)
             output_channels = self.classification_channels

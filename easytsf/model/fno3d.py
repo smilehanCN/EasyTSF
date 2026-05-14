@@ -6,20 +6,15 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-
-def _as_tuple3(value: object, field_name: str) -> tuple[int, int, int]:
-    if isinstance(value, (list, tuple)) and len(value) == 3:
-        parsed = tuple(int(v) for v in value)
-        if any(v <= 0 for v in parsed):
-            raise ValueError("Expected {} entries to be positive, got {!r}".format(field_name, value))
-        return parsed
-    raise ValueError("Expected {} to be a length-3 tuple/list, got {!r}".format(field_name, value))
+from easytsf.model.grid3d_common import as_tuple3 as _as_tuple3
+from easytsf.model.grid3d_common import resolve_grid3d_output_channels
 
 
 @dataclass
 class FNO3DModelConfig:
     model_name: str = "fno3d"
     in_channels: int = 6
+    out_channels: int | None = None
     coord_channels: int = 3
     fno_width: int = 20
     fno_layers: int = 4
@@ -115,6 +110,7 @@ class Model(nn.Module):
         history_len: int | None = None,
         pred_len: int = 1,
         in_channels: int = 6,
+        out_channels: int | None = None,
         coord_channels: int = 3,
         fno_width: int = 20,
         fno_layers: int = 4,
@@ -156,15 +152,14 @@ class Model(nn.Module):
             raise ValueError("fno_padding must be >= 0")
         if self.fno_projection_dim <= 0:
             raise ValueError("fno_projection_dim must be > 0")
-        if self.output_mode not in {"regression", "classification"}:
-            raise ValueError(
-                "fno3d output_mode must be one of ['regression', 'classification'], got {}".format(self.output_mode)
-            )
-        if self.risk_num_classes <= 0 or self.risk_num_heads <= 0:
-            raise ValueError("risk_num_classes and risk_num_heads must be > 0")
-
-        self.classification_channels = self.risk_num_classes * self.risk_num_heads
-        self.output_channels = self.in_channels if self.output_mode == "regression" else self.classification_channels
+        self.regression_out_channels, self.classification_channels, self.output_channels = resolve_grid3d_output_channels(
+            in_channels=self.in_channels,
+            out_channels=out_channels,
+            output_mode=self.output_mode,
+            risk_num_classes=self.risk_num_classes,
+            risk_num_heads=self.risk_num_heads,
+            model_name="fno3d",
+        )
         total_in_features = self.history_len * self.in_channels + (self.coord_channels if self.use_coords else 0)
 
         self.fc0 = nn.Linear(total_in_features, self.fno_width)

@@ -1,4 +1,0 @@
-interface:
-  display_name: "EasyTSF Model Adaptation"
-  short_description: "Classify prediction models and map repo changes"
-  default_prompt: "Use $adapt-model-to-easytsf to inspect this external model, classify it as sequence, graph, or grid prediction, and tell me whether EasyTSF can adapt it directly or needs a contract extension."

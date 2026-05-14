@@ -28,12 +28,11 @@ def test_get_task_spec_returns_expected_metadata():
     assert grid_spec.report_group == "grid3d_forecasting"
     assert grid_spec.supported_models == (
         "unet3d",
-        "unet3d_engram",
         "unet3d_patchcat",
         "patchstg_flat3d",
-        "fredn_multivariate3d",
         "fno3d",
         "afno3d",
+        "simvpv2_3d",
     )
 
 
@@ -45,3 +44,8 @@ def test_get_task_components_returns_expected_tuple():
 def test_get_task_spec_rejects_unknown_task():
     with pytest.raises(ValueError, match="unsupported task: unknown_task"):
         get_task_spec("unknown_task")
+
+
+def test_get_task_spec_rejects_removed_shear_io_task():
+    with pytest.raises(ValueError, match="unsupported task: grid3d_shear_io_forecasting"):
+        get_task_spec("grid3d_shear_io_forecasting")
