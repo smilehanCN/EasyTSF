@@ -94,11 +94,6 @@ Grid3D 数据目录：
   meta.json
 ```
 
-将 WindField4Cast 风格原始数据导入为 Grid3D cache：
-
-```bash
-python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/WindFieldDemo
-```
 
 ## 目录定位
 
@@ -112,8 +107,3 @@ python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir datase
 - `recipes/`：历史科研 sweep、ablation、多 seed 启动等非核心入口
 - `skills/`：给 agent 使用的项目契约
 
-## 科研资产说明
-
-WindShear 0416/0417 的 sweep、ablation、多 seed 和监控脚本属于历史科研 recipe，不作为 EasyTSF 核心 API。部分 recipe 可能引用已经移除或实验性的 task 名称，使用前需要先恢复对应 task 支持。
-
-部分历史配置中保留了 `WindStear_V1_0417` 拼写，因为它对应已有本地实验数据目录。新文档和新命名应优先使用 `WindShear`。

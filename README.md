@@ -94,18 +94,6 @@ Grid3D datasets use the same split naming plus grid artifacts:
   meta.json
 ```
 
-Import WindField4Cast-style raw files into the maintained Grid3D cache layout:
-
-```bash
-python scripts/grid3d_import.py --input-dir /path/to/raw_nc_dir --out-dir dataset/WindFieldDemo
-```
-
-Run the demo Grid3D preset:
-
-```bash
-python -m easytsf.workflow.experiment config/experiments/unet3d/windfield4cast_demo.yaml
-```
-
 ## Repository Layout
 
 - `easytsf/data/`: dataset readers, split window datasets, and scaling utilities
@@ -117,12 +105,6 @@ python -m easytsf.workflow.experiment config/experiments/unet3d/windfield4cast_d
 - `scripts/`: stable utility scripts such as dataset import
 - `recipes/`: research launchers and one-off experiment orchestration
 - `skills/`: agent-facing repository contracts
-
-## Research Assets
-
-WindShear 0416/0417 sweeps, ablations, multi-seed launches, and monitoring helpers are treated as historical research recipes rather than core library APIs. Some of them reference removed or experimental task names and may require task support to be reintroduced before use.
-
-The historical dataset spelling `WindStear_V1_0417` appears in some existing presets because it matches local experiment artifacts. New documentation should use `WindShear` unless referring to that concrete dataset directory.
 
 ## Validation
 
